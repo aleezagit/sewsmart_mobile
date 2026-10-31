@@ -27,7 +27,7 @@ This file is the agreement between the Flutter apps and the backend. Every endpo
 | Lists | A JSON array, newest first unless the endpoint says otherwise. Filters are optional query parameters. Leave one out to get everything. |
 | Authentication | `Authorization: Bearer <token>` on every route except login, register, OTP and forgot password. Admin routes need an admin token. |
 | Success | `200` with the object or array, `201` when something is created, `204` with no body when there is nothing to return, such as delete and logout. An action such as approve, cancel or resolve returns the updated object. |
-| Errors | The status code plus `{ "message": "..." }`. `400` invalid input, `401` missing or expired token or wrong credentials, `403` wrong role, `404` not found, `409` not allowed in the current state. |
+| Errors | The status code plus `{ "message": "..." }`. `400` invalid input, `401` missing or expired token or wrong credentials, `403` wrong role, `404` not found, `409` not allowed in the current state. `429` too many attempts: the login routes allow 8 wrong passwords per account and address in 15 minutes, and the routes that send a code or an email allow 5 per 15 minutes. The message says how long to wait. |
 
 ## 2. Values
 

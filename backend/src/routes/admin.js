@@ -13,6 +13,7 @@ const Settings = require('../models/Settings');
 const v = require('../utils/validate');
 const { badRequest, unauthorized, notFound, conflict } = require('../utils/errors');
 const { signToken, requireAdmin } = require('../middleware/auth');
+const rateLimits = require('../middleware/rateLimit');
 const { refreshTailorRating } = require('../services/ratings');
 const { refundOrder, setStatus } = require('../services/orderAccess');
 const { notify } = require('../services/notifications');
@@ -22,7 +23,7 @@ const reports = require('../services/reports');
 const router = express.Router();
 
 // ── Auth ───────────────────────────────────────────────────────────────────
-router.post('/auth/login', async (req, res) => {
+router.post('/auth/login', rateLimits.login, async (req, res) => {
   const email = String(req.body.email || '').trim().toLowerCase();
   const admin = await Admin.findOne({ email });
   if (!admin || !(await bcrypt.compare(String(req.body.password || ''), admin.password_hash))) {

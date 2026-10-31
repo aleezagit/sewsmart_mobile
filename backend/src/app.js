@@ -10,6 +10,7 @@ const { notFoundHandler, errorHandler } = require('./middleware/errors');
 function createApp() {
   const app = express();
   app.disable('x-powered-by');
+  if (config.trustProxy) app.set('trust proxy', config.trustProxy);
   app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(cors(config.corsOrigins.length ? { origin: config.corsOrigins } : undefined));
   app.use(express.json({ limit: '1mb' }));

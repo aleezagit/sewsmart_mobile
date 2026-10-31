@@ -81,3 +81,33 @@ test('a suspended account cannot use the API', async () => {
   await api.get('/api/users/me').set(auth).expect(403);
   await api.post('/api/auth/login').send({ email: user.email, password: PASSWORD }).expect(403);
 });
+
+test('too many wrong passwords are blocked, and only for that account', async () => {
+  const config = require('../src/config');
+  const { adminSession } = require('./helpers');
+  const user = await signUp(api, 'customer');
+  const other = await signUp(api, 'customer');
+  config.rateLimiting = true;
+  try {
+    const wrong = () => api.post('/api/auth/login').send({ email: user.user.email, password: 'wrong-password' });
+    for (let i = 0; i < 8; i += 1) await wrong().expect(401);
+    const blocked = await wrong().expect(429);
+    assert.match(blocked.body.message, /Too many attempts\. Try again in \d+ minutes?\./);
+    // Even the right password waits, so guessing cannot continue by luck.
+    await api.post('/api/auth/login').send({ email: user.user.email, password: PASSWORD }).expect(429);
+    // Another account is not affected, and a correct login is never counted.
+    for (let i = 0; i < 10; i += 1) await api.post('/api/auth/login').send({ email: other.user.email, password: PASSWORD }).expect(200);
+
+    // Codes sent by email or SMS are limited too.
+    for (let i = 0; i < 5; i += 1) await api.post('/api/auth/send-otp').send({ phone: '03001110000' }).expect(204);
+    await api.post('/api/auth/send-otp').send({ phone: '03001110000' }).expect(429);
+    await api.post('/api/auth/send-otp').send({ phone: '03001110001' }).expect(204);
+
+    // The admin login has the same protection.
+    await adminSession(api);
+    for (let i = 0; i < 8; i += 1) await api.post('/api/admin/auth/login').send({ email: 'admin@test.com', password: 'nope' }).expect(401);
+    await api.post('/api/admin/auth/login').send({ email: 'admin@test.com', password: 'adminpass1' }).expect(429);
+  } finally {
+    config.rateLimiting = false;
+  }
+});

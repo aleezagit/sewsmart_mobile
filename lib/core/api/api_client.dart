@@ -8,7 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 // A failed request. [message] comes from the backend's `{ "message": "..." }`
 // and is written to be shown to the user as it is.
@@ -45,23 +45,30 @@ class ApiClient {
   static const _uploadTimeout = Duration(seconds: 200);
 
   final http.Client _http = http.Client();
+  // The sign-in token is kept in the Android Keystore or the iOS Keychain,
+  // not in plain preferences.
+  static const _storage = FlutterSecureStorage();
   String? _token;
 
   bool get hasToken => _token != null;
 
-  // Reads the token saved by the last sign-in.
+  // Reads the token saved by the last sign-in. If the secure storage cannot
+  // be read, the user simply signs in again.
   Future<void> restoreToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    _token = prefs.getString(_tokenKey);
+    try {
+      _token = await _storage.read(key: _tokenKey);
+    } catch (_) {
+      _token = null;
+    }
   }
 
   Future<void> setToken(String? token) async {
     _token = token;
-    final prefs = await SharedPreferences.getInstance();
     if (token == null) {
-      await prefs.remove(_tokenKey);
+      // Signing out must work even when the storage cannot be reached.
+      await _storage.delete(key: _tokenKey).catchError((_) {});
     } else {
-      await prefs.setString(_tokenKey, token);
+      await _storage.write(key: _tokenKey, value: token);
     }
   }
 

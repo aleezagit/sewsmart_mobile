@@ -11,6 +11,10 @@ module.exports = {
   port: Number(env.PORT) || 4000,
   isProduction: env.NODE_ENV === 'production',
   isTest,
+  // Off in tests, which sign in many times. A test that checks the limits turns it on.
+  rateLimiting: !isTest,
+  // How many proxies sit in front of the API (0 for none), so req.ip is the caller's.
+  trustProxy: Number(env.TRUST_PROXY) || 0,
   mongoUri: env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sewsmart',
   jwtSecret: env.JWT_SECRET || 'test-secret',
   jwtExpiresIn: env.JWT_EXPIRES_IN || '7d',

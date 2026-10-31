@@ -5,6 +5,7 @@ const Verification = require('../models/Verification');
 const v = require('../utils/validate');
 const { badRequest, unauthorized, forbidden, conflict, notFound } = require('../utils/errors');
 const { signToken, requireUser } = require('../middleware/auth');
+const rateLimits = require('../middleware/rateLimit');
 const codes = require('../services/codes');
 const { sendEmail, sendSms } = require('../services/messaging');
 const { userId, nextId } = require('../utils/ids');
@@ -16,7 +17,7 @@ const MIN_PASSWORD = 4;
 
 const session = (user) => ({ token: signToken(user.id, 'user', user.token_version), user });
 
-router.post('/register', async (req, res) => {
+router.post('/register', rateLimits.register, async (req, res) => {
   const role = v.oneOf(req.body.role, 'Role', User.ROLES);
   const name = v.text(req.body.name, 'Name', { max: 100 });
   const email = v.email(req.body.email);
@@ -52,7 +53,7 @@ router.post('/register', async (req, res) => {
   res.status(201).json(session(user));
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', rateLimits.login, async (req, res) => {
   const email = v.text(req.body.email, 'Email').toLowerCase();
   const password = typeof req.body.password === 'string' ? req.body.password : '';
   const user = await User.findOne({ email, deleted_at: null });
@@ -63,21 +64,21 @@ router.post('/login', async (req, res) => {
   res.json(session(user));
 });
 
-router.post('/send-otp', async (req, res) => {
+router.post('/send-otp', rateLimits.sendCode, async (req, res) => {
   const phone = v.normalizePhone(v.mobile(req.body.phone));
   const code = await codes.issuePhoneCode(phone);
   await sendSms(phone, `Your SewSmart code is ${code}. It expires in 10 minutes.`);
   res.status(204).end();
 });
 
-router.post('/verify-otp', async (req, res) => {
+router.post('/verify-otp', rateLimits.checkCode, async (req, res) => {
   const phone = v.normalizePhone(v.mobile(req.body.phone));
   const otp = v.text(req.body.otp, 'Code', { max: 10 });
   if (!(await codes.verifyPhoneCode(phone, otp))) throw badRequest('Invalid or expired code');
   res.status(204).end();
 });
 
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', rateLimits.sendResetEmail, async (req, res) => {
   const email = v.email(req.body.email);
   const user = await User.findOne({ email, deleted_at: null });
   if (!user) throw notFound('No account uses this email');
@@ -90,7 +91,7 @@ router.post('/forgot-password', async (req, res) => {
   res.status(204).end();
 });
 
-router.post('/reset-password', async (req, res) => {
+router.post('/reset-password', rateLimits.checkCode, async (req, res) => {
   const token = v.text(req.body.token, 'Reset code', { max: 100 });
   const password = v.password(req.body.new_password, MIN_PASSWORD);
   const id = await codes.redeemResetCode(token);
