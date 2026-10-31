@@ -4,6 +4,9 @@
 name: Build Android APK
 
 on:
+  # Temporary: builds when this branch is pushed, until the workflow is on develop.
+  push:
+    branches: [claude/tender-turing-24xyfy]
   workflow_dispatch:
     inputs:
       api_url:
