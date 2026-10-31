@@ -3,7 +3,7 @@ const Payment = require('../models/Payment');
 const Stream = require('../models/Stream');
 const Withdrawal = require('../models/Withdrawal');
 const Settings = require('../models/Settings');
-const { startOfMonth, startOfWeek, monthKey, lastMonths, addDays } = require('../utils/dates');
+const { startOfMonth, monthKey, lastMonths } = require('../utils/dates');
 
 const sum = (items, pick) => items.reduce((total, item) => total + pick(item), 0);
 const round = (value) => Math.round(value * 100) / 100;
@@ -52,38 +52,8 @@ async function tailorEarnings(tailorId) {
   };
 }
 
-// A rider earns the delivery fee for each delivered order.
-async function riderEarnings(riderId) {
-  const orders = await Order.find({ rider_id: riderId });
-  const delivered = orders.filter((o) => o.delivered_at);
-  const inTransit = orders.filter((o) => !o.delivered_at && o.status === 'readyForDelivery');
-  const { claimed } = await withdrawalTotals(riderId);
-
-  const monthStart = startOfMonth();
-  const thisMonth = delivered.filter((o) => o.delivered_at >= monthStart);
-  const total = sum(delivered, (o) => o.delivery_fee);
-
-  const weekStart = startOfWeek();
-  const weekly = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
-    const from = addDays(weekStart, i);
-    const to = addDays(weekStart, i + 1);
-    return { day, deliveries: delivered.filter((o) => o.delivered_at >= from && o.delivered_at < to).length };
-  });
-
-  return {
-    total: round(total),
-    this_month: round(sum(thisMonth, (o) => o.delivery_fee)),
-    pending: round(sum(inTransit, (o) => o.delivery_fee)),
-    available: round(Math.max(0, total - claimed)),
-    total_deliveries: delivered.length,
-    this_month_deliveries: thisMonth.length,
-    weekly,
-  };
-}
-
 async function availableBalance(user) {
-  const earnings = user.role === 'tailor' ? await tailorEarnings(user.id) : await riderEarnings(user.id);
-  return earnings.available;
+  return (await tailorEarnings(user.id)).available;
 }
 
-module.exports = { tailorEarnings, riderEarnings, availableBalance };
+module.exports = { tailorEarnings, availableBalance };

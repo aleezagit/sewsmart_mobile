@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../services/customer_service.dart';
 
@@ -46,42 +45,21 @@ class _WriteReviewScreenState extends State<WriteReviewScreen> {
     return text.isEmpty ? tags : '$text\n$tags';
   }
 
-  // Reviews show a first name and an initial, such as "Ayesha K.".
-  String _reviewerName(String name) {
-    final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
-    if (parts.isEmpty) return 'Customer';
-    if (parts.length == 1) return parts.first;
-    return '${parts.first} ${parts.last[0].toUpperCase()}.';
-  }
-
-  void _showMessage(String text, Color color) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(text, style: GoogleFonts.poppins()), backgroundColor: color));
-  }
-
   Future<void> _submit() async {
     if (_rating == 0) {
-      _showMessage('Tap the stars to rate your tailor', AppColors.warning);
+      showMessage(context, 'Tap the stars to rate your tailor', success: false);
       return;
     }
-    final user = AuthService().currentUser;
-    if (user == null) return;
     setState(() => _submitting = true);
-    final ok = await CustomerService().submitReview(
-      tailorId: widget.order.tailorId,
-      customerId: user.id,
-      customerName: _reviewerName(user.name),
-      rating: _rating.toDouble(),
-      comment: _comment,
-      orderId: widget.order.id,
-    );
-    if (!mounted) return;
-    setState(() => _submitting = false);
-    if (!ok) {
-      _showMessage('Could not send the review. This order may already have one.', AppColors.error);
+    try {
+      await CustomerService().submitReview(orderId: widget.order.id, rating: _rating, comment: _comment);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      showError(context, e);
       return;
     }
+    if (!mounted) return;
     AppRefresh.ordersChanged();
     Navigator.pop(context, true);
   }

@@ -77,5 +77,4 @@ function normalizePhone(phone) {
 
 module.exports = {
   text, optionalText, number, oneOf, bool, email, mobile, cnic, password, normalizePhone,
-  isEmail: (value) => EMAIL.test(String(value || '').trim()),
 };

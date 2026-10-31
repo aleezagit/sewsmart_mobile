@@ -19,7 +19,7 @@ function readToken(req) {
   }
 }
 
-// Signed-in customer, tailor or rider. Sets req.user.
+// Signed-in customer or tailor. Sets req.user.
 async function requireUser(req, res, next) {
   const payload = readToken(req);
   if (payload.kind !== 'user') throw unauthorized('Please sign in with a SewSmart account');

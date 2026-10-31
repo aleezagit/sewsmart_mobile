@@ -42,7 +42,7 @@ async function revenue(dates = {}) {
 
 async function stats(dates = {}) {
   const live = { deleted_at: null };
-  const [totalUsers, totalOrders, totalRevenue, activeOrders, pendingVerifications, registeredTailors, activeRiders,
+  const [totalUsers, totalOrders, totalRevenue, activeOrders, pendingVerifications, registeredTailors,
     openDisputes, thisMonth, lastMonth, ratings] = await Promise.all([
     User.countDocuments(live),
     Order.countDocuments(withDates({}, 'created_at', dates)),
@@ -50,7 +50,6 @@ async function stats(dates = {}) {
     Order.countDocuments({ status: { $in: Order.ACTIVE } }),
     Verification.countDocuments({ status: 'pending' }),
     User.countDocuments({ ...live, role: 'tailor' }),
-    User.countDocuments({ ...live, role: 'rider', status: 'active' }),
     Dispute.countDocuments({ status: 'open' }),
     revenue({ $gte: startOfMonth() }),
     revenue({ $gte: startOfMonth(new Date(), -1), $lt: startOfMonth() }),
@@ -66,7 +65,6 @@ async function stats(dates = {}) {
     active_orders: activeOrders,
     pending_verifications: pendingVerifications,
     registered_tailors: registeredTailors,
-    active_riders: activeRiders,
     open_disputes: openDisputes,
     this_month_revenue: thisMonth,
     last_month_revenue: lastMonth,

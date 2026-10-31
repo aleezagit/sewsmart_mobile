@@ -2,9 +2,12 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../core/models/app_models.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/services/payout_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../services/tailor_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Entry point
@@ -49,38 +52,19 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
   // How many of each gift arrived during the stream, by gift name.
   final Map<String, int> _giftCounts = {};
 
+  // ── Server state ──────────────────────────────────────────────────────────
+  LiveStream? _stream;
+  bool _starting = false;
+  // The tailor's price list, for pinning an item viewers can order.
+  List<GarmentPricing> _garments = [];
+
   // ── Timers ────────────────────────────────────────────────────────────────
-  Timer? _statsTmr, _chatTmr, _giftTmr;
+  Timer? _clockTmr, _pollTmr;
 
   // ── Animations ────────────────────────────────────────────────────────────
   late final AnimationController _pulseCtrl;
   late final Animation<double>   _pulseAnim;
 
-  // ─── Mock catalogue ───────────────────────────────────────────────────────
-  static const _kViewers = [
-    'Fatima K.','Zara M.','Sana A.','Mehwish B.','Ayesha R.',
-    'Sara J.','Nadia H.','Hina T.','Rabia S.','Asma Q.',
-  ];
-  static const _kLines = [
-    'Mashallah so beautiful work! 😍',
-    'Can you make this for me?',
-    'How much does this cost?',
-    'What fabric are you using?',
-    'Amazing stitching as always ❤️',
-    'I want to order this!',
-    'Your work is incredible 🔥',
-    'Can you ship to Karachi?',
-    'This is perfect for my wedding!',
-    'Please share the price list!',
-    'Following you now! 💜',
-    'Sending love from Lahore! 🌹',
-    'How long does it take to complete?',
-    'Can you do custom embroidery?',
-    'Best tailor on SewSmart! 👑',
-    'Please do a tutorial next! 🙏',
-    'My mom wants one exactly like this!',
-    'Waaah kamal ka kaam! 🤩',
-  ];
   static const _kCats = [
     'Bridal Work', 'Stitching Tutorial', 'Design Showcase', 'Q&A Session',
   ];
@@ -89,14 +73,6 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
     _Gift('🌹', 'Rose',   50,  DarkColors.error),
     _Gift('💎', 'Diamond',100, DarkColors.info),
     _Gift('👑', 'Crown',  500, DarkColors.secondary),
-  ];
-
-  // ── Showcase items ────────────────────────────────────────────────────────
-  static const _kShowcase = <_ShowItem>[
-    _ShowItem('Bridal Lehenga Set',    'Rs 4,500', Icons.diamond_rounded,          DarkColors.secondary),
-    _ShowItem('Formal Shalwar Kameez', 'Rs 2,200', Icons.business_center_rounded,  DarkColors.info),
-    _ShowItem('Anarkali Frock',        'Rs 3,000', Icons.layers_rounded,           DarkColors.teal),
-    _ShowItem('Silk Sharara',          'Rs 5,000', Icons.auto_awesome_rounded,     DarkColors.primary),
   ];
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -108,15 +84,25 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
       ..repeat(reverse: true);
     _pulseAnim = Tween<double>(begin: 0.88, end: 1.0).animate(
         CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
+    _loadGarments();
   }
+
+  // Without the price list, the pin sheet says there is nothing to pin.
+  Future<void> _loadGarments() async {
+    try {
+      final garments = await TailorService().getGarments(AuthService().currentUser?.id ?? '');
+      if (mounted) setState(() => _garments = garments);
+    } catch (_) {}
+  }
+
+  String get _initial => initialsOf(AuthService().currentUser?.name ?? '', max: 1);
 
   @override
   void dispose() {
     _titleCtrl.dispose();
     _chatScroll.dispose();
-    _statsTmr?.cancel();
-    _chatTmr?.cancel();
-    _giftTmr?.cancel();
+    _clockTmr?.cancel();
+    _pollTmr?.cancel();
     _pulseCtrl.dispose();
     super.dispose();
   }
@@ -128,94 +114,148 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
   }
 
   // ── Start stream ──────────────────────────────────────────────────────────
-  void _startStream() {
+  Future<void> _startStream() async {
     if (_titleCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('Please add a stream title', style: GoogleFonts.poppins()),
-        backgroundColor: DarkColors.error,
-      ));
+      showMessage(context, 'Please add a stream title', success: false);
       return;
     }
+    if (_starting) return;
+    setState(() => _starting = true);
+    final LiveStream stream;
+    try {
+      stream = await TailorService().startStream(
+        title: _titleCtrl.text, category: _category, giftsEnabled: _giftsOn,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _starting = false);
+      showError(context, e);
+      return;
+    }
+    if (!mounted) return;
     setState(() {
+      _starting = false;
       _phase = _Phase.live;
-      _viewers = 0; _peakView = 0; _likes = 0;
-      _earnings = 0; _durSec = 0;
-      _msgs.clear(); _pops.clear(); _giftCounts.clear();
+      _msgs.clear(); _pops.clear();
+      _apply(stream);
     });
 
-    int ci = 0, gi = 0;
-
-    // Stats every second
-    _statsTmr = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() {
-        _durSec++;
-        if (_viewers < 90) {
-          _viewers += 2 + (_durSec % 5 == 0 ? 4 : 0);
-        } else if (_viewers < 220) {
-          _viewers += (_durSec % 7 == 0 ? 2 : 0);
-        }
-        _viewers = _viewers.clamp(0, 250);
-        if (_viewers > _peakView) _peakView = _viewers;
-        if (_durSec % 3 == 0) _likes += 3 + _durSec % 5;
-        if (_durSec % 9 == 0 && _giftsOn) _earnings += 10;
-      });
+    // The clock moves every second. The numbers, the chat and new gifts are
+    // asked for every few seconds until the API sends live updates
+    // (docs/API.md, section 5).
+    _clockTmr = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() => _durSec = DateTime.now().difference(_stream!.startedAt).inSeconds);
     });
+    _pollTmr = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+  }
 
-    // Chat every ~2 s
-    _chatTmr = Timer.periodic(const Duration(milliseconds: 2100), (_) {
-      if (!mounted) return;
-      final v = _kViewers[ci % _kViewers.length];
-      final l = _kLines[ci % _kLines.length];
-      setState(() {
-        _msgs.add(_Msg(v, l));
-        if (_msgs.length > 40) _msgs.removeAt(0);
-      });
-      ci++;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_chatScroll.hasClients) {
-          _chatScroll.animateTo(
-            _chatScroll.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 250),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    });
-
-    // Gifts every ~13 s
-    _giftTmr = Timer.periodic(const Duration(seconds: 13), (_) {
-      if (!mounted || !_giftsOn) return;
-      final g = _kGifts[gi % _kGifts.length];
-      final v = _kViewers[(gi + 3) % _kViewers.length];
-      setState(() {
-        _pops.add(_GiftPop(v, g));
-        _giftCounts[g.name] = (_giftCounts[g.name] ?? 0) + 1;
-        _earnings += g.amount;
+  // Takes the numbers of [stream] and shows a pop for each gift that arrived
+  // since the last look.
+  void _apply(LiveStream stream) {
+    for (final gift in stream.gifts) {
+      final before = _giftCounts[gift.name] ?? 0;
+      final kind = _kGifts.where((g) => g.name == gift.name).firstOrNull;
+      for (var n = before; n < gift.count && kind != null; n++) {
+        _pops.add(_GiftPop('A viewer', kind));
         if (_pops.length > 3) _pops.removeAt(0);
+        Future.delayed(const Duration(seconds: 4), () {
+          if (mounted) setState(() { if (_pops.isNotEmpty) _pops.removeAt(0); });
+        });
+      }
+      _giftCounts[gift.name] = gift.count;
+    }
+    _stream = stream;
+    _viewers = stream.viewers;
+    _peakView = stream.peakViewers;
+    _likes = stream.likes;
+    _earnings = stream.earnings;
+    _durSec = stream.durationSeconds;
+  }
+
+  Future<void> _refresh() async {
+    final stream = _stream;
+    if (stream == null) return;
+    final service = TailorService();
+    try {
+      final results = await Future.wait([service.getStream(stream.id), service.getStreamMessages(stream.id)]);
+      if (!mounted || _phase != _Phase.live) return;
+      final atEnd = !_chatScroll.hasClients || _chatScroll.position.extentAfter < 40;
+      setState(() {
+        _apply(results[0] as LiveStream);
+        _msgs
+          ..clear()
+          ..addAll((results[1] as List<LiveMessage>).map((m) => _Msg(m.viewerName, m.text)));
       });
-      gi++;
-      Future.delayed(const Duration(seconds: 4), () {
-        if (!mounted) return;
-        setState(() { if (_pops.isNotEmpty) _pops.removeAt(0); });
-      });
-    });
+      if (atEnd) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_chatScroll.hasClients) {
+            _chatScroll.animateTo(
+              _chatScroll.position.maxScrollExtent,
+              duration: const Duration(milliseconds: 250),
+              curve: Curves.easeOut,
+            );
+          }
+        });
+      }
+    } catch (_) {
+      // The next round tries again.
+    }
   }
 
   // ── End stream ────────────────────────────────────────────────────────────
-  void _endStream() {
-    _statsTmr?.cancel(); _chatTmr?.cancel(); _giftTmr?.cancel();
-    setState(() => _phase = _Phase.ended);
+  Future<void> _endStream() async {
+    final stream = _stream;
+    if (stream == null) return;
+    try {
+      final ended = await TailorService().endStream(stream.id);
+      _clockTmr?.cancel(); _pollTmr?.cancel();
+      if (mounted) setState(() { _apply(ended); _pops.clear(); _phase = _Phase.ended; });
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   void _resetToSetup() {
     setState(() {
       _phase = _Phase.setup;
+      _stream = null;
       _viewers = 0; _peakView = 0; _likes = 0;
       _earnings = 0; _durSec = 0; _muted = false;
       _msgs.clear(); _pops.clear(); _giftCounts.clear();
       _titleCtrl.clear();
     });
+  }
+
+  // Gift earnings join the available balance when the stream ends. Payouts
+  // have a minimum, as the payout screen explains.
+  Future<void> _withdraw() async {
+    if (_earnings < PayoutService.minimumWithdrawal) {
+      showMessage(
+        context,
+        'The minimum withdrawal is Rs ${PayoutService.minimumWithdrawal.toInt()}. These earnings stay in your balance.',
+        success: false,
+      );
+      return;
+    }
+    try {
+      final withdrawal = await PayoutService().requestWithdrawal(amount: _earnings);
+      if (mounted) showMessage(context, 'Rs ${withdrawal.amount.toInt()} withdrawal requested. Payouts are sent on Mondays.');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _pin(GarmentPricing item) async {
+    final stream = _stream;
+    if (stream == null) return;
+    try {
+      final updated = await TailorService().pinStreamItem(stream.id, item.id);
+      if (!mounted) return;
+      setState(() => _stream = updated);
+      showMessage(context, '${item.garment} pinned for viewers!');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -314,9 +354,9 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                         gradient: LinearGradient(
                             colors: [DarkColors.teal, DarkColors.tealLight]),
                       ),
-                      child: const Center(
-                        child: Text('S',
-                            style: TextStyle(color: Colors.white,
+                      child: Center(
+                        child: Text(_initial,
+                            style: const TextStyle(color: Colors.white,
                                 fontWeight: FontWeight.bold, fontSize: 38)),
                       ),
                     ),
@@ -591,7 +631,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                             color: Colors.white, shape: BoxShape.circle),
                       ),
                       const SizedBox(width: 12),
-                      Text('GO LIVE',
+                      Text(_starting ? 'STARTING...' : 'GO LIVE',
                           style: GoogleFonts.poppins(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -667,9 +707,9 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                       gradient: LinearGradient(
                           colors: [DarkColors.teal, DarkColors.tealLight]),
                     ),
-                    child: const Center(
-                      child: Text('S',
-                          style: TextStyle(color: Colors.white,
+                    child: Center(
+                      child: Text(_initial,
+                          style: const TextStyle(color: Colors.white,
                               fontWeight: FontWeight.bold, fontSize: 44)),
                     ),
                   ),
@@ -940,33 +980,33 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                 style: GoogleFonts.poppins(
                     color: DarkColors.textMuted, fontSize: 11)),
             const SizedBox(height: 12),
-            ..._kShowcase.map((item) => ListTile(
+            if (_garments.isEmpty)
+              Text('Add items to your price list on your profile to pin them here.',
+                  style: GoogleFonts.poppins(color: DarkColors.textMuted, fontSize: 12)),
+            ..._garments.map((item) => ListTile(
               contentPadding: EdgeInsets.zero,
               leading: Container(
                 width: 42, height: 42,
                 decoration: BoxDecoration(
-                  color: item.color.withValues(alpha: 0.12),
+                  color: DarkColors.teal.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: Icon(item.icon, color: item.color, size: 20),
+                child: Icon(
+                  item.id == _stream?.pinnedGarmentId ? Icons.push_pin_rounded : Icons.checkroom_rounded,
+                  color: DarkColors.tealLight, size: 20),
               ),
-              title: Text(item.name,
+              title: Text(item.garment,
                   style: GoogleFonts.poppins(
                       color: DarkColors.textPrimary,
                       fontSize: 13,
                       fontWeight: FontWeight.w600)),
-              subtitle: Text(item.price,
+              subtitle: Text('Rs ${item.price.toInt()}',
                   style: GoogleFonts.poppins(
                       color: DarkColors.success, fontSize: 12)),
               trailing: GestureDetector(
                 onTap: () {
                   Navigator.pop(shCtx);
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('${item.name} pinned for viewers!',
-                        style: GoogleFonts.poppins()),
-                    backgroundColor: DarkColors.teal,
-                    duration: const Duration(seconds: 2),
-                  ));
+                  _pin(item);
                 },
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -1173,25 +1213,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
 
                 // ── Withdraw button ───────────────────────────────────────────
                 GestureDetector(
-                  // Payouts have a minimum, as the payout screen explains.
-                  onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    _earnings < PayoutService.minimumWithdrawal
-                        ? SnackBar(
-                            content: Text(
-                                'The minimum withdrawal is Rs ${PayoutService.minimumWithdrawal.toInt()}. '
-                                'These earnings stay in your balance.',
-                                style: GoogleFonts.poppins()),
-                            backgroundColor: DarkColors.warning,
-                            duration: const Duration(seconds: 3),
-                          )
-                        : SnackBar(
-                            content: Text(
-                                'Rs ${_earnings.toInt()} withdrawal initiated!',
-                                style: GoogleFonts.poppins()),
-                            backgroundColor: DarkColors.success,
-                            duration: const Duration(seconds: 3),
-                          ),
-                  ),
+                  onTap: _withdraw,
                   child: Container(
                     width: double.infinity, height: 54,
                     decoration: BoxDecoration(
@@ -1406,9 +1428,4 @@ class _Gift {
   const _Gift(this.emoji, this.name, this.amount, this.color);
 }
 
-class _ShowItem {
-  final String name, price;
-  final IconData icon;
-  final Color color;
-  const _ShowItem(this.name, this.price, this.icon, this.color);
-}
+

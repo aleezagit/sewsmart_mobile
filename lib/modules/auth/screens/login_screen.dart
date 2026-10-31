@@ -32,34 +32,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeIn);
     _fadeCtrl.forward();
-    _setMockEmail();
-  }
-
-  void _setMockEmail() {
-    _emailCtrl.text = 'ayesha@email.com';
   }
 
   void _onRoleChanged(UserRole role) {
     setState(() {
       _selectedRole = role;
       _errorMsg = null;
-      switch (role) {
-        case UserRole.customer:
-          _emailCtrl.text = 'ayesha@email.com';
-        case UserRole.tailor:
-          _emailCtrl.text = 'sana@couture.com';
-        case UserRole.rider:
-          _emailCtrl.text = 'ali@rider.com';
-      }
-      _passCtrl.text = '';
     });
   }
 
   Future<void> _login() async {
     final email = _emailCtrl.text.trim();
-    final pass = _passCtrl.text.trim();
+    final pass = _passCtrl.text;
     if (email.isEmpty || pass.isEmpty) {
-      setState(() => _errorMsg = 'Please enter email and password');
+      setState(() => _errorMsg = 'Please enter your email and password');
       return;
     }
     if (!Validators.isEmail(email)) {
@@ -81,17 +67,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       return;
     }
     if (result.success && result.user != null) {
-      Widget destination;
-      switch (result.user!.role) {
-        case UserRole.customer:
-          destination = const MainNavigationCustomer();
-        case UserRole.tailor:
-          destination = const MainNavigationTailor();
-        case UserRole.rider:
-          destination = const MainNavigationRider();
-      }
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => destination),
+        MaterialPageRoute(builder: (_) => homeFor(result.user!.role)),
       );
     } else {
       setState(() => _errorMsg = result.error ?? 'Login failed');
@@ -177,19 +154,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         onTap: () => _onRoleChanged(UserRole.tailor),
                         color: AppColors.tailorColor,
                       ),
-                      const SizedBox(width: 10),
-                      RoleChip(
-                        label: 'Rider',
-                        icon: Icons.delivery_dining_rounded,
-                        selected: _selectedRole == UserRole.rider,
-                        onTap: () => _onRoleChanged(UserRole.rider),
-                        color: AppColors.riderColor,
-                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _buildMockHint(),
-                  const SizedBox(height: 16),
                   AppTextField(
                     ctrl: _emailCtrl,
                     hint: 'Email address',
@@ -277,46 +244,12 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildMockHint() {
-    String email;
-    switch (_selectedRole) {
-      case UserRole.customer:
-        email = 'ayesha@email.com';
-      case UserRole.tailor:
-        email = 'sana@couture.com';
-      case UserRole.rider:
-        email = 'ali@rider.com';
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.cardAlt,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.info_outline, color: AppColors.primaryLight, size: 15),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Mock: $email / 1234',
-              style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 11),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   List<Color> _roleGradient() {
     switch (_selectedRole) {
       case UserRole.customer:
         return [AppColors.primary, AppColors.primaryLight];
       case UserRole.tailor:
         return [AppColors.teal, AppColors.tealLight];
-      case UserRole.rider:
-        return [AppColors.riderColor, const Color(0xFFF97316)];
     }
   }
 }

@@ -36,24 +36,13 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     DarkColors.success,
     Color(0xFFF472B6),
   ];
-  // Other viewers' chat. Until the API sends live updates (docs/API.md,
-  // section 5) the screen plays these lines, as the tailor's live screen does.
-  static const _otherViewers = ['Hina T.', 'Rabia S.', 'Mehwish B.', 'Asma Q.', 'Sara J.', 'Nadia H.'];
-  static const _otherLines = [
-    'Mashallah, beautiful work!',
-    'What fabric is this?',
-    'Can you make this in blue?',
-    'How many days for delivery?',
-    'Love the embroidery ❤️',
-    'Price please?',
-    'Watching from Karachi 👋',
-    'Can I order this for my sister?',
-  ];
-
   late LiveStream _stream = widget.stream;
   late int _viewers = widget.stream.viewers;
   late int _likes = widget.stream.likes;
   final List<_ChatLine> _chat = [];
+  // The gifts this viewer sent, shown in the chat.
+  final List<_ChatLine> _giftLines = [];
+  List<GarmentPricing> _garments = [];
   final List<_Gift> _giftPops = [];
   final List<int> _hearts = [];
   final _chatCtrl = TextEditingController();
@@ -63,9 +52,8 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
   bool _joined = false;
   bool _ended = false;
   bool _sendingGift = false;
-  int _tick = 0;
   int _nextHeart = 0;
-  Timer? _clock, _chatTimer;
+  Timer? _clock, _poll;
   late final AnimationController _pulseCtrl;
   late final Animation<double> _pulse;
 
@@ -82,68 +70,92 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
       CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
     );
     _ended = widget.stream.status != 'live';
-    if (!_ended) _startTimers();
     _join();
   }
 
   @override
   void dispose() {
     _clock?.cancel();
-    _chatTimer?.cancel();
+    _poll?.cancel();
     _pulseCtrl.dispose();
     _chatCtrl.dispose();
     _chatScroll.dispose();
-    if (_joined) CustomerService().leaveStream(_stream.id);
+    if (_joined) CustomerService().leaveStream(_stream.id).catchError((_) {});
     super.dispose();
   }
 
   Future<void> _join() async {
     final service = CustomerService();
-    final joined = await service.joinStream(widget.stream.id);
-    final messages = await service.getStreamMessages(widget.stream.id);
-    final garments = await service.getTailorGarments(widget.stream.tailorId);
-    final tailor = await service.getTailorById(widget.stream.tailorId);
-    if (!mounted) return;
-    setState(() {
-      if (joined != null) {
+    try {
+      final joined = await service.joinStream(widget.stream.id);
+      final results = await Future.wait([
+        service.getStreamMessages(joined.id),
+        service.getTailorGarments(joined.tailorId),
+        service.getTailorById(joined.tailorId),
+      ]);
+      if (!mounted) return;
+      final garments = results[1] as List<GarmentPricing>;
+      setState(() {
         _joined = true;
-        _stream = joined;
-        _viewers = joined.viewers;
-        _likes = joined.likes;
-      }
-      _chat.insertAll(0, messages.map((m) => _ChatLine(m.viewerName, m.text)));
-      _pinned = garments.where((g) => g.id == _stream.pinnedGarmentId).firstOrNull;
-      _tailor = tailor;
-    });
-    if (_stream.status != 'live') _endLocally();
+        _garments = garments;
+        _tailor = results[2] as TailorModel;
+        _apply(joined, results[0] as List<LiveMessage>);
+      });
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    if (_stream.status != 'live') {
+      _endLocally();
+    } else {
+      _startTimers();
+    }
     _scrollChatToEnd();
   }
 
+  // Takes the stream's numbers and chat from the server. The gifts this viewer
+  // sent stay in the chat between the server's lines.
+  void _apply(LiveStream stream, List<LiveMessage> messages) {
+    final me = AuthService().currentUser?.name;
+    _stream = stream;
+    _viewers = stream.viewers;
+    _likes = stream.likes;
+    _pinned = _garments.where((g) => g.id == stream.pinnedGarmentId).firstOrNull;
+    final lines = [
+      ...messages.map((m) => _ChatLine(m.viewerName, m.text, m.createdAt, mine: m.viewerName == me)),
+      ..._giftLines,
+    ]..sort((a, b) => a.at.compareTo(b.at));
+    _chat
+      ..clear()
+      ..addAll(lines.length > 60 ? lines.sublist(lines.length - 60) : lines);
+  }
+
+  // The clock moves every second. The numbers and the chat are asked for
+  // again every few seconds until the API sends live updates (docs/API.md, section 5).
   void _startTimers() {
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (!mounted) return;
-      setState(() {
-        _tick++;
-        // A little movement in the numbers as other viewers come, go and like.
-        if (_tick % 3 == 0) _viewers += _tick % 2 == 0 ? 2 : -1;
-        if (_viewers < 1) _viewers = 1;
-        if (_tick % 2 == 0) _likes += 1 + _tick % 3;
-      });
+      if (mounted) setState(() {});
     });
-    var line = 0;
-    _chatTimer = Timer.periodic(const Duration(milliseconds: 3200), (_) {
+    _poll = Timer.periodic(const Duration(seconds: 3), (_) => _refresh());
+  }
+
+  Future<void> _refresh() async {
+    final service = CustomerService();
+    try {
+      final results = await Future.wait([service.getStream(_stream.id), service.getStreamMessages(_stream.id)]);
       if (!mounted) return;
-      _addChat(_ChatLine(
-        _otherViewers[line % _otherViewers.length],
-        _otherLines[line % _otherLines.length],
-      ));
-      line++;
-    });
+      final atEnd = !_chatScroll.hasClients || _chatScroll.position.extentAfter < 40;
+      setState(() => _apply(results[0] as LiveStream, results[1] as List<LiveMessage>));
+      if (_stream.status != 'live') _endLocally();
+      if (atEnd) _scrollChatToEnd();
+    } catch (_) {
+      // The next round tries again.
+    }
   }
 
   void _endLocally() {
     _clock?.cancel();
-    _chatTimer?.cancel();
+    _poll?.cancel();
     if (mounted) setState(() => _ended = true);
   }
 
@@ -153,16 +165,6 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     final minutes = two(elapsed.inMinutes % 60);
     final seconds = two(elapsed.inSeconds % 60);
     return elapsed.inHours > 0 ? '${elapsed.inHours}:$minutes:$seconds' : '$minutes:$seconds';
-  }
-
-  void _showMessage(String text, Color color) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(text, style: GoogleFonts.poppins()),
-        backgroundColor: color,
-        duration: const Duration(seconds: 2),
-      ));
   }
 
   void _addChat(_ChatLine line) {
@@ -189,11 +191,14 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     final text = _chatCtrl.text.trim();
     if (text.isEmpty || _ended) return;
     _chatCtrl.clear();
-    _addChat(_ChatLine('You', text, mine: true));
-    final viewerName = AuthService().currentUser?.name ?? 'Viewer';
-    final sent = await CustomerService().sendStreamMessage(_stream.id, text, viewerName: viewerName);
-    if (!mounted || sent != null) return;
-    _showMessage('Your message was not sent. Try again.', DarkColors.error);
+    try {
+      final sent = await CustomerService().sendStreamMessage(_stream.id, text);
+      if (mounted) _addChat(_ChatLine(sent.viewerName, sent.text, sent.createdAt, mine: true));
+    } catch (e) {
+      if (!mounted) return;
+      _chatCtrl.text = text;
+      showError(context, e);
+    }
   }
 
   void _like() {
@@ -206,13 +211,13 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     Future.delayed(const Duration(milliseconds: 900), () {
       if (mounted) setState(() => _hearts.remove(id));
     });
-    CustomerService().likeStream(_stream.id);
+    CustomerService().likeStream(_stream.id).catchError((_) {});
   }
 
   void _openGifts() {
     if (_ended || _sendingGift) return;
     if (!_stream.giftsEnabled) {
-      _showMessage('$_tailorName turned off gifts for this stream', DarkColors.info);
+      showMessage(context, '$_tailorName turned off gifts for this stream', success: false);
       return;
     }
     showModalBottomSheet(
@@ -316,14 +321,19 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     );
     if (confirm != true || !mounted) return;
     setState(() => _sendingGift = true);
-    final ok = await CustomerService().sendGift(_stream.id, gift.name);
-    if (!mounted) return;
-    setState(() => _sendingGift = false);
-    if (!ok) {
-      _showMessage('The gift could not be sent, and you were not charged.', DarkColors.error);
+    try {
+      await CustomerService().sendGift(_stream.id, gift.name);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _sendingGift = false);
+      showError(context, e);
       return;
     }
-    _addChat(_ChatLine('You', 'sent a ${gift.name} ${gift.emoji}', mine: true, gift: true));
+    if (!mounted) return;
+    setState(() => _sendingGift = false);
+    final line = _ChatLine('You', 'sent a ${gift.name} ${gift.emoji}', DateTime.now(), mine: true, gift: true);
+    _giftLines.add(line);
+    _addChat(line);
     setState(() => _giftPops.add(gift));
     Future.delayed(const Duration(seconds: 3), () {
       if (mounted && _giftPops.isNotEmpty) setState(() => _giftPops.removeAt(0));
@@ -837,8 +847,9 @@ class _TopChip extends StatelessWidget {
 
 class _ChatLine {
   final String name, text;
+  final DateTime at;
   final bool mine, gift;
-  const _ChatLine(this.name, this.text, {this.mine = false, this.gift = false});
+  const _ChatLine(this.name, this.text, this.at, {this.mine = false, this.gift = false});
 }
 
 class _Gift {

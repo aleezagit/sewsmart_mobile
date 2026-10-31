@@ -20,6 +20,7 @@ class SavedDesignsScreen extends StatefulWidget {
 class _SavedDesignsScreenState extends State<SavedDesignsScreen> {
   List<DesignModel> _designs = [];
   bool _loading = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -28,31 +29,29 @@ class _SavedDesignsScreenState extends State<SavedDesignsScreen> {
   }
 
   Future<void> _load() async {
-    final designs = await CustomerService().getWishlist();
-    if (!mounted) return;
-    setState(() {
-      _designs = designs;
-      _loading = false;
-    });
+    try {
+      final designs = await CustomerService().getWishlist();
+      if (mounted) setState(() { _designs = designs; _loading = false; _loadError = null; });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
   }
 
   Future<void> _remove(DesignModel design) async {
     final index = _designs.indexOf(design);
     if (index == -1) return;
     setState(() => _designs.removeAt(index));
-    final ok = await CustomerService().removeFromWishlist(design.id);
-    if (ok) AppRefresh.wishlistChanged();
-    if (!mounted) return;
-    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
-    if (!ok) {
+    try {
+      await CustomerService().removeFromWishlist(design.id);
+    } catch (e) {
+      if (!mounted) return;
       setState(() => _designs.insert(index, design));
-      messenger.showSnackBar(SnackBar(
-        content: Text('Could not remove ${design.name}', style: GoogleFonts.poppins()),
-        backgroundColor: AppColors.error,
-      ));
+      showError(context, e);
       return;
     }
-    messenger.showSnackBar(SnackBar(
+    AppRefresh.wishlistChanged();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)..hideCurrentSnackBar()..showSnackBar(SnackBar(
       content: Text('${design.name} removed', style: GoogleFonts.poppins(color: AppColors.textPrimary)),
       backgroundColor: AppColors.cardAlt,
       // A snack bar with an action stays until it is tapped unless told
@@ -67,9 +66,14 @@ class _SavedDesignsScreenState extends State<SavedDesignsScreen> {
   }
 
   Future<void> _undo(DesignModel design, int index) async {
-    final ok = await CustomerService().addToWishlist(design.id);
-    if (ok) AppRefresh.wishlistChanged();
-    if (!mounted || !ok || _designs.contains(design)) return;
+    try {
+      await CustomerService().addToWishlist(design.id);
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    AppRefresh.wishlistChanged();
+    if (!mounted || _designs.contains(design)) return;
     setState(() => _designs.insert(index > _designs.length ? _designs.length : index, design));
   }
 
@@ -113,6 +117,12 @@ class _SavedDesignsScreenState extends State<SavedDesignsScreen> {
   Widget _buildBody() {
     if (_loading) {
       return Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2));
+    }
+    if (_loadError != null) {
+      return LoadError(error: _loadError!, onRetry: () {
+        setState(() => _loading = true);
+        _load();
+      });
     }
     if (_designs.isEmpty) {
       return Center(

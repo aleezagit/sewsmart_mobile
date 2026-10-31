@@ -1,7 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { setup, teardown, signUp, adminSession, addGarment, Coupon, PNG } = require('./helpers');
-const User = require('../src/models/User');
+const { setup, teardown, signUp, addGarment, Coupon } = require('./helpers');
 const { runJobs } = require('../src/services/jobs');
 const { addDays } = require('../src/utils/dates');
 const Order = require('../src/models/Order');
@@ -11,7 +10,6 @@ before(async () => { api = await setup(); });
 after(teardown);
 
 test('an order goes from placement to a completed, reviewed and paid-out order', async () => {
-  const admin = await adminSession(api);
   const customer = await signUp(api, 'customer', { name: 'Ayesha Khan' });
   const tailor = await signUp(api, 'tailor');
   await addGarment(tailor.user.id, 'Bridal Lehenga', 5000);
@@ -33,7 +31,6 @@ test('an order goes from placement to a completed, reviewed and paid-out order',
   }).expect(201);
   const order = placed.body;
   assert.deepStrictEqual([order.id, order.status, order.amount, order.discount], ['ORD-1001', 'pending', 4000, 1000]);
-  assert.strictEqual(order.pickup_code, undefined);
   const payment = await api.post('/api/payments').set(customer.auth).send({ order_id: order.id, method: 'jazzCash' }).expect(201);
   assert.deepStrictEqual([payment.body.status, payment.body.amount], ['completed', 4000]);
   await api.post('/api/payments').set(customer.auth).send({ order_id: order.id, method: 'jazzCash' }).expect(409);
@@ -44,54 +41,28 @@ test('an order goes from placement to a completed, reviewed and paid-out order',
   await api.put(`/api/orders/${order.id}/accept`).set(tailor.auth).expect(409);
   await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'inProgress' }).expect(200);
   await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'accepted' }).expect(400);
-  const ready = await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'readyForDelivery' }).expect(200);
-  assert.match(ready.body.pickup_code, /^\d{4}$/);
+  await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'readyForDelivery' }).expect(200);
   await api.post(`/api/orders/${order.id}/delivery-request`).set(tailor.auth).expect(204);
   const notes = await api.get('/api/notifications').set(customer.auth).expect(200);
-  assert.ok(notes.body.some((n) => n.type === 'order' && /ready for pickup/.test(n.body)));
+  assert.ok(notes.body.some((n) => n.type === 'order' && /ready for delivery/.test(n.body)));
   assert.ok(notes.body.some((n) => n.type === 'delivery'));
 
-  // The customer schedules delivery and sees the slip code.
+  // The customer schedules delivery.
   await api.put(`/api/orders/${order.id}/delivery-schedule`).set(customer.auth).send({
-    pickup_date: '2026-11-02', delivery_date: '2026-11-01', pickup_slot: '9:00 AM - 11:00 AM', delivery_slot: '2:00 PM - 4:00 PM',
+    delivery_date: '2020-01-01', delivery_slot: '2:00 PM - 4:00 PM',
   }).expect(400);
+  const tomorrow = addDays(new Date(), 1).toISOString().slice(0, 10);
   const scheduled = await api.put(`/api/orders/${order.id}/delivery-schedule`).set(customer.auth).send({
-    pickup_date: '2026-11-02', delivery_date: '2026-11-03', pickup_slot: '9:00 AM - 11:00 AM', delivery_slot: '2:00 PM - 4:00 PM',
+    delivery_date: tomorrow, delivery_slot: '2:00 PM - 4:00 PM',
   }).expect(200);
-  const slipCode = scheduled.body.delivery_code;
-  assert.match(slipCode, /^\d{6}$/);
+  assert.strictEqual(scheduled.body.delivery_slot, '2:00 PM - 4:00 PM');
 
-  // The tailor adds a rider; the admin approves and the rider gets a password.
-  const added = await api.post('/api/riders').set(tailor.auth).send({
-    name: 'Usman Tariq', phone: '03069988776', cnic_number: '35202-1234567-1', city: 'Lahore',
-  }).expect(201);
-  const riderId = added.body.id;
-  await api.put(`/api/orders/${order.id}/rider`).set(tailor.auth).send({ rider_id: riderId }).expect(409);
-  const pending = await api.get('/api/admin/verifications?status=pending').set(admin).expect(200);
-  const request = pending.body.find((r) => r.user_id === riderId);
-  await api.put(`/api/admin/verifications/${request.id}/approve`).set(admin).expect(200);
-  const riders = await api.get(`/api/tailors/${tailor.user.id}/riders`).set(tailor.auth).expect(200);
-  assert.strictEqual(riders.body[0].is_verified, true);
-  const assigned = await api.put(`/api/orders/${order.id}/rider`).set(tailor.auth).send({ rider_id: riderId }).expect(200);
-  assert.strictEqual(assigned.body.rider_name, 'Usman Tariq');
-
-  // The rider's side. Sign in with the phone number.
-  const riderUser = await User.findById(riderId);
-  riderUser.password_hash = await require('bcryptjs').hash('riderpass', 4);
-  await riderUser.save();
-  const login = await api.post('/api/auth/login').send({ email: '0306-9988776', password: 'riderpass' }).expect(200);
-  const rider = { Authorization: `Bearer ${login.body.token}` };
-  const deliveries = await api.get(`/api/riders/${riderId}/deliveries`).set(rider).expect(200);
-  assert.deepStrictEqual(deliveries.body.map((d) => d.id), [order.id]);
-  await api.put(`/api/deliveries/${order.id}/verify-customer-slip`).set(rider).send({ code: slipCode }).expect(409);
-  await api.put(`/api/deliveries/${order.id}/verify-pickup`).set(rider).send({ code: '99999' }).expect(400);
-  await api.put(`/api/deliveries/${order.id}/verify-pickup`).set(rider).send({ code: ready.body.pickup_code }).expect(200);
-  await api.post(`/api/deliveries/${order.id}/proof`).set(rider).attach('photo', Buffer.from('MZ'), 'virus.exe').expect(400);
-  await api.post(`/api/deliveries/${order.id}/proof`).set(rider).attach('photo', PNG, { filename: 'proof.png', contentType: 'image/png' }).expect(200);
-  const delivered = await api.put(`/api/deliveries/${order.id}/verify-customer-slip`).set(rider).send({ code: slipCode }).expect(200);
+  // The tailor hands the order over and marks it delivered.
+  await api.post('/api/reviews').set(customer.auth).send({ order_id: order.id, rating: 4 }).expect(409);
+  const delivered = await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'delivered' }).expect(200);
   assert.strictEqual(delivered.body.status, 'delivered');
-  const riderEarnings = await api.get(`/api/riders/${riderId}/earnings`).set(rider).expect(200);
-  assert.deepStrictEqual([riderEarnings.body.total, riderEarnings.body.total_deliveries], [250, 1]);
+  assert.ok(delivered.body.delivered_at);
+  await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'completed' }).expect(400);
 
   // One review per delivered order, and the tailor's rating follows.
   await api.post('/api/reviews').set(customer.auth).send({ order_id: order.id, rating: 6 }).expect(400);

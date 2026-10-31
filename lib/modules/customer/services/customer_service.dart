@@ -1,466 +1,255 @@
 // ─── Customer Service ─────────────────────────────────────────────────────────
-// API-ready: all methods return Future<T>. Replace mock with real API calls.
+// The customer's side of the API (docs/API.md, section 3). The API reads the
+// customer from the token, so no customer id is passed. Every method throws
+// [ApiException] with a message to show when the request fails.
 
+import 'package:image_picker/image_picker.dart';
+
+import '../../../core/api/api_client.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
+import '../../../core/utils/validators.dart';
 
 class CustomerService {
   static final CustomerService _i = CustomerService._();
   factory CustomerService() => _i;
   CustomerService._();
 
-  // TODO: GET /api/tailors?category=&city=&rating=&price=
-  Future<List<TailorModel>> getTailors({String? category, String? city, double? minRating}) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    var list = MockData.tailors;
-    if (category != null && category != 'All') list = list.where((t) => t.category == category).toList();
-    if (minRating != null) list = list.where((t) => t.rating >= minRating).toList();
-    return list;
-  }
+  final ApiClient _api = ApiClient();
 
-  // TODO: GET /api/tailors/:id
-  Future<TailorModel?> getTailorById(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.tailors.where((t) => t.id == id).firstOrNull;
-  }
+  // ── Tailors ─────────────────────────────────────────────────────────────────
+  // GET /api/tailors?category=&city=&rating=&search=
+  Future<List<TailorModel>> getTailors({String? category, String? city, double? minRating, String? search}) async =>
+      listOf(await _api.get('/tailors', query: {
+        'category': category == 'All' ? null : category,
+        'city': city, 'rating': minRating, 'search': search,
+      }), TailorModel.fromJson);
 
-  // TODO: GET /api/orders?customerId=
-  Future<List<OrderModel>> getMyOrders(String customerId) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return MockData.orders.where((o) => o.customerId == customerId).toList();
-  }
+  // GET /api/tailors/:id
+  Future<TailorModel> getTailorById(String id) async =>
+      TailorModel.fromJson(objectOf(await _api.get('/tailors/$id')));
 
-  // TODO: POST /api/orders
-  Future<OrderModel?> placeOrder({
-    required String customerId, required String tailorId,
-    required String garmentType, required double amount,
-    required String measurements, bool hasDesignRef = false, String? notes,
-    String? couponCode,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    final tailor = MockData.tailors.firstWhere((t) => t.id == tailorId);
-    final order = OrderModel(
-      id: 'ORD${DateTime.now().millisecondsSinceEpoch}',
-      customerId: customerId, tailorId: tailorId,
-      customerName: 'Customer', tailorName: tailor.name,
-      garmentType: garmentType, status: OrderStatus.pending,
-      amount: amount, measurements: measurements,
-      createdAt: DateTime.now(), hasDesignRef: hasDesignRef, notes: notes,
-    );
-    MockData.orders.add(order);
-    return order;
-  }
+  // GET /api/tailors/:id/portfolio
+  Future<List<PortfolioItem>> getTailorPortfolio(String tailorId) async =>
+      listOf(await _api.get('/tailors/$tailorId/portfolio'), PortfolioItem.fromJson);
 
-  // TODO: PUT /api/orders/:id/delivery-schedule
-  Future<bool> setDeliverySchedule({
-    required String orderId, required DateTime pickupDate,
-    required DateTime deliveryDate, required String pickupSlot,
-    required String deliverySlot,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return true;
-  }
+  // GET /api/tailors/:id/garments
+  Future<List<GarmentPricing>> getTailorGarments(String tailorId) async =>
+      listOf(await _api.get('/tailors/$tailorId/garments'), GarmentPricing.fromJson);
 
-  // TODO: POST /api/payments
-  Future<PaymentModel?> makePayment({
-    required String orderId, required String customerId,
-    required String tailorId, required double amount,
-    required PaymentMethod method,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-    return PaymentModel(
-      id: 'PAY${DateTime.now().millisecondsSinceEpoch}',
-      orderId: orderId, customerId: customerId, tailorId: tailorId,
-      amount: amount, status: PaymentStatus.completed,
-      method: method, createdAt: DateTime.now(),
-      transactionId: 'TXN${DateTime.now().millisecondsSinceEpoch}',
-    );
-  }
+  // GET /api/tailors/:id/reviews
+  Future<List<ReviewModel>> getTailorReviews(String tailorId) async =>
+      listOf(await _api.get('/tailors/$tailorId/reviews'), ReviewModel.fromJson);
 
-  // TODO: POST /api/reviews
-  // One review per delivered or completed order. orderId lets the backend
-  // check that the order belongs to this customer and tailor.
-  Future<bool> submitReview({
-    required String tailorId, required String customerId,
-    required String customerName, required double rating, required String comment,
-    String? orderId,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    if (rating < 1 || rating > 5) return false;
-    if (orderId != null && MockData.reviews.any((r) => r.orderId == orderId)) return false;
-    MockData.reviews.insert(0, ReviewModel(
-      id: 'REV${DateTime.now().millisecondsSinceEpoch}',
-      customerId: customerId, tailorId: tailorId, customerName: customerName,
-      comment: comment.trim(), rating: rating, createdAt: DateTime.now(),
-      orderId: orderId,
-    ));
-    return true;
-  }
+  // GET /api/categories. The screen adds its own "All" chip.
+  Future<List<String>> getCategories() async =>
+      List<String>.from(await _api.get('/categories') as List);
 
-  // TODO: GET /api/notifications?userId=
-  Future<List<NotificationModel>> getNotifications(String userId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.notifications;
-  }
+  // ── Orders ──────────────────────────────────────────────────────────────────
+  // GET /api/orders
+  Future<List<OrderModel>> getMyOrders() async =>
+      listOf(await _api.get('/orders'), OrderModel.fromJson);
 
-  // TODO: GET /api/garments/pricing
-  Future<List<GarmentPricing>> getGarmentPricing() async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    return MockData.garments;
-  }
+  // POST /api/orders. The price comes from the tailor's price list and the
+  // discount from the coupon, both worked out by the server.
+  Future<OrderModel> placeOrder({
+    required String tailorId, required String garmentType,
+    required String measurements, String? notes, String? couponCode,
+  }) async =>
+      OrderModel.fromJson(objectOf(await _api.post('/orders', {
+        'tailor_id': tailorId, 'garment_type': garmentType,
+        'measurements': measurements, 'notes': ?notes, 'coupon_code': ?couponCode,
+      })));
 
-  // ── Garment categories ──────────────────────────────────────────────────────
-  // TODO: GET /api/categories
-  // The list the admin manages in settings. The screen adds its own "All" chip.
-  Future<List<String>> getCategories() async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    return MockData.categories.where((c) => c != 'All').toList();
-  }
+  // POST /api/orders/:id/design-ref, the reference picture of a placed order.
+  Future<OrderModel> uploadDesignReference(String orderId, XFile image) async =>
+      OrderModel.fromJson(objectOf(await _api.upload('/orders/$orderId/design-ref', files: {'image': image})));
 
-  // ── Tailor price list and reviews ───────────────────────────────────────────
-  // TODO: GET /api/tailors/:id/garments
-  Future<List<GarmentPricing>> getTailorGarments(String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List<GarmentPricing>.from(MockData.tailorGarments);
-  }
+  // PUT /api/orders/:id/delivery-schedule
+  Future<OrderModel> setDeliverySchedule({
+    required String orderId, required DateTime deliveryDate, required String deliverySlot,
+  }) async =>
+      OrderModel.fromJson(objectOf(await _api.put('/orders/$orderId/delivery-schedule', {
+        'delivery_date': _day(deliveryDate), 'delivery_slot': deliverySlot,
+      })));
 
-  // TODO: GET /api/tailors/:id/reviews
-  Future<List<ReviewModel>> getTailorReviews(String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.reviews.where((r) => r.tailorId == tailorId).toList();
-  }
+  String _day(DateTime date) =>
+      '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
+
+  // POST /api/payments. The amount is the order's own.
+  Future<PaymentModel> makePayment({required String orderId, required PaymentMethod method}) async =>
+      PaymentModel.fromJson(objectOf(await _api.post('/payments', {'order_id': orderId, 'method': method.name})));
+
+  // GET /api/payments/bank-account, where a bank transfer goes: bank_name,
+  // account_title, account_number and iban.
+  Future<Map<String, String>> getBankAccount() async =>
+      Map<String, String>.from(await _api.get('/payments/bank-account') as Map);
+
+  // POST /api/reviews. One review per delivered or completed order.
+  Future<ReviewModel> submitReview({required String orderId, required int rating, required String comment}) async =>
+      ReviewModel.fromJson(objectOf(await _api.post('/reviews', {
+        'order_id': orderId, 'rating': rating, 'comment': comment.trim(),
+      })));
 
   // ── Coupons ─────────────────────────────────────────────────────────────────
-  // TODO: POST /api/coupons/validate
-  Future<CouponResult> validateCoupon({required String code, required double amount, String? tailorId}) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    final value = code.trim().toUpperCase();
-    if (value == 'EID20') {
-      return CouponResult(
-        code: value, valid: true, discountPercent: 20,
-        discountAmount: amount * 0.2, message: '20% discount applied!',
-      );
-    }
-    return CouponResult(code: value, valid: false, message: 'Invalid coupon code');
-  }
+  // POST /api/coupons/validate
+  Future<CouponResult> validateCoupon({required String code, required double amount, String? tailorId}) async =>
+      CouponResult.fromJson(objectOf(await _api.post('/coupons/validate', {
+        'code': code.trim().toUpperCase(), 'amount': amount, 'tailor_id': ?tailorId,
+      })));
 
   // ── Saved measurements ──────────────────────────────────────────────────────
-  // TODO: GET /api/measurements
+  // GET /api/measurements. Null when the customer has saved none yet.
   Future<MeasurementModel?> getMeasurements() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.measurements;
+    try {
+      return MeasurementModel.fromJson(objectOf(await _api.get('/measurements')));
+    } on ApiException catch (e) {
+      if (e.isNotFound) return null;
+      rethrow;
+    }
   }
 
-  // TODO: PUT /api/measurements
-  Future<bool> saveMeasurements(MeasurementModel measurements) async {
-    await Future.delayed(const Duration(milliseconds: 900));
-    MockData.measurements = measurements;
-    return true;
-  }
+  // PUT /api/measurements
+  Future<MeasurementModel> saveMeasurements(MeasurementModel measurements) async =>
+      MeasurementModel.fromJson(objectOf(await _api.put('/measurements', measurements.toJson())));
 
   // ── Saved payment methods ───────────────────────────────────────────────────
-  // TODO: GET /api/payment-methods
-  Future<List<SavedPaymentMethod>> getPaymentMethods() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List<SavedPaymentMethod>.from(MockData.paymentMethods);
-  }
+  // GET /api/payment-methods
+  Future<List<SavedPaymentMethod>> getPaymentMethods() async =>
+      listOf(await _api.get('/payment-methods'), SavedPaymentMethod.fromJson);
 
-  // TODO: POST /api/payment-methods
-  // type is jazzCash, easyPaisa, bank, card or cashOnDelivery.
-  Future<SavedPaymentMethod?> addPaymentMethod({required String type, String? accountNumber, String? accountName}) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final method = SavedPaymentMethod(
-      id: 'PM${DateTime.now().millisecondsSinceEpoch}',
-      type: type,
-      detail: accountNumber ?? '',
-      accountName: accountName ?? '',
-      isDefault: MockData.paymentMethods.isEmpty,
-    );
-    MockData.paymentMethods.add(method);
-    return method;
-  }
+  // POST /api/payment-methods. type is jazzCash, easyPaisa, bank, card or cashOnDelivery.
+  Future<SavedPaymentMethod> addPaymentMethod({required String type, String? accountNumber, String? accountName}) async =>
+      SavedPaymentMethod.fromJson(objectOf(await _api.post('/payment-methods', {
+        'type': type,
+        'account_number': type == 'jazzCash' || type == 'easyPaisa' ? Validators.normalizeMobile(accountNumber ?? '') : accountNumber,
+        'account_name': ?accountName,
+      })));
 
-  // TODO: PUT /api/payment-methods/:id/default
-  Future<bool> setDefaultPaymentMethod(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!MockData.paymentMethods.any((m) => m.id == id)) return false;
-    MockData.paymentMethods = MockData.paymentMethods
-        .map((m) => m.copyWith(isDefault: m.id == id))
-        .toList();
-    return true;
-  }
+  // PUT /api/payment-methods/:id/default
+  Future<void> setDefaultPaymentMethod(String id) => _api.put('/payment-methods/$id/default');
 
-  // TODO: DELETE /api/payment-methods/:id
-  // The default method cannot be removed.
-  Future<bool> removePaymentMethod(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final idx = MockData.paymentMethods.indexWhere((m) => m.id == id);
-    if (idx == -1 || MockData.paymentMethods[idx].isDefault) return false;
-    MockData.paymentMethods.removeAt(idx);
-    return true;
-  }
+  // DELETE /api/payment-methods/:id. The default method cannot be removed.
+  Future<void> removePaymentMethod(String id) => _api.delete('/payment-methods/$id');
 
   // ── Saved addresses ─────────────────────────────────────────────────────────
-  // TODO: GET /api/addresses
-  Future<List<AddressModel>> getAddresses() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List<AddressModel>.from(MockData.addresses);
-  }
+  // GET /api/addresses
+  Future<List<AddressModel>> getAddresses() async =>
+      listOf(await _api.get('/addresses'), AddressModel.fromJson);
 
-  // TODO: POST /api/addresses
-  // label is home, work or other. The first address becomes the default.
-  Future<AddressModel?> addAddress({
+  Map<String, dynamic> _address(String label, String street, String area, String city, String phone, String? landmark) => {
+    'label': label, 'street': street.trim(), 'area': area.trim(), 'city': city.trim(),
+    'phone': Validators.normalizeMobile(phone), 'landmark': landmark?.trim() ?? '',
+  };
+
+  // POST /api/addresses. label is home, work or other. The first address becomes the default.
+  Future<AddressModel> addAddress({
     required String label, required String street, required String area,
     required String city, required String phone, String? landmark,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final address = AddressModel(
-      id: 'AD${DateTime.now().millisecondsSinceEpoch}',
-      label: label, street: street.trim(), area: area.trim(), city: city.trim(),
-      phone: phone.trim(), landmark: _optional(landmark),
-      isDefault: MockData.addresses.isEmpty,
-    );
-    MockData.addresses.add(address);
-    return address;
-  }
+  }) async =>
+      AddressModel.fromJson(objectOf(await _api.post('/addresses', _address(label, street, area, city, phone, landmark))));
 
-  // TODO: PUT /api/addresses/:id
-  Future<AddressModel?> updateAddress({
+  // PUT /api/addresses/:id
+  Future<AddressModel> updateAddress({
     required String id, required String label, required String street,
     required String area, required String city, required String phone,
     String? landmark,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final idx = MockData.addresses.indexWhere((a) => a.id == id);
-    if (idx == -1) return null;
-    final updated = AddressModel(
-      id: id, label: label, street: street.trim(), area: area.trim(),
-      city: city.trim(), phone: phone.trim(), landmark: _optional(landmark),
-      isDefault: MockData.addresses[idx].isDefault,
-    );
-    MockData.addresses[idx] = updated;
-    return updated;
-  }
+  }) async =>
+      AddressModel.fromJson(objectOf(await _api.put('/addresses/$id', _address(label, street, area, city, phone, landmark))));
 
-  // TODO: PUT /api/addresses/:id/default
-  Future<bool> setDefaultAddress(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!MockData.addresses.any((a) => a.id == id)) return false;
-    MockData.addresses = MockData.addresses
-        .map((a) => a.copyWith(isDefault: a.id == id))
-        .toList();
-    return true;
-  }
+  // PUT /api/addresses/:id/default
+  Future<void> setDefaultAddress(String id) => _api.put('/addresses/$id/default');
 
-  // TODO: DELETE /api/addresses/:id
-  // The default address can only be removed when it is the last one.
-  Future<bool> removeAddress(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final idx = MockData.addresses.indexWhere((a) => a.id == id);
-    if (idx == -1) return false;
-    if (MockData.addresses[idx].isDefault && MockData.addresses.length > 1) return false;
-    MockData.addresses.removeAt(idx);
-    return true;
-  }
-
-  String? _optional(String? value) {
-    final text = value?.trim() ?? '';
-    return text.isEmpty ? null : text;
-  }
+  // DELETE /api/addresses/:id. The default address can only be removed when it is the last one.
+  Future<void> removeAddress(String id) => _api.delete('/addresses/$id');
 
   // ── Wishlist ────────────────────────────────────────────────────────────────
-  // TODO: GET /api/wishlist
-  Future<List<DesignModel>> getWishlist() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.designs.where((d) => MockData.wishlist.contains(d.id)).toList();
-  }
+  // GET /api/wishlist
+  Future<List<DesignModel>> getWishlist() async =>
+      listOf(await _api.get('/wishlist'), DesignModel.fromJson);
 
-  // TODO: POST /api/wishlist
-  Future<bool> addToWishlist(String designId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    if (!MockData.designs.any((d) => d.id == designId)) return false;
-    if (!MockData.wishlist.contains(designId)) MockData.wishlist.add(designId);
-    return true;
-  }
+  // POST /api/wishlist
+  Future<void> addToWishlist(String designId) => _api.post('/wishlist', {'design_id': designId});
 
-  // TODO: DELETE /api/wishlist/:designId
-  Future<bool> removeFromWishlist(String designId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.wishlist.remove(designId);
-  }
+  // DELETE /api/wishlist/:designId
+  Future<void> removeFromWishlist(String designId) => _api.delete('/wishlist/$designId');
 
   // ── Searches and AI recommendations ─────────────────────────────────────────
-  // customerName is only for the mock. The real API reads the user from the token.
-  // TODO: POST /api/searches
-  Future<void> recordSearch(String query, {String customerName = 'Customer'}) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    MockData.recordSearch(query, customerName: customerName);
+  // POST /api/searches. Searches shorter than three characters are not kept.
+  Future<void> recordSearch(String query) async {
+    final text = query.trim();
+    if (text.length >= 3) await _api.post('/searches', {'query': text});
   }
 
-  // TODO: GET /api/searches
-  Future<List<SearchEntry>> getMySearches({String customerName = 'Customer'}) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.searchHistory
-        .where((s) => (s['customerName'] as String).toLowerCase() == customerName.toLowerCase())
-        .map((s) => SearchEntry(
-              query: s['query'] as String,
-              category: s['category'] as String,
-              createdAt: DateTime.now().subtract(Duration(hours: s['hoursAgo'] as int)),
-            ))
-        .toList();
-  }
+  // GET /api/searches
+  Future<List<SearchEntry>> getMySearches() async =>
+      listOf(await _api.get('/searches'), SearchEntry.fromJson);
 
-  // TODO: GET /api/searches/trending?limit=10
-  Future<List<TrendingSearch>> getTrendingSearches({int limit = 10}) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final counts = <String, int>{};
-    for (final s in MockData.searchHistory) {
-      final query = s['query'] as String;
-      counts[query] = (counts[query] ?? 0) + 1;
-    }
-    final entries = counts.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    return entries
-        .take(limit)
-        .map((e) => TrendingSearch(query: e.key, count: e.value))
-        .toList();
-  }
+  // GET /api/searches/trending?limit=
+  Future<List<TrendingSearch>> getTrendingSearches({int limit = 10}) async =>
+      listOf(await _api.get('/searches/trending', query: {'limit': limit}), TrendingSearch.fromJson);
 
-  // TODO: GET /api/ai/recommendations?query=&limit=
-  // Without a query the real API returns designs picked from the user's own searches.
-  Future<List<DesignModel>> getRecommendations({String? query, int limit = 6}) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    final q = (query ?? '').trim();
-    if (q.isEmpty) return MockData.designs.take(limit).toList();
-    final category = MockData.designCategoryFor(q);
-    return MockData.designs.where((d) => d.category == category).take(limit).toList();
-  }
+  // GET /api/ai/recommendations?query=&limit=. Without a query, designs
+  // picked from the customer's own searches.
+  Future<List<DesignModel>> getRecommendations({String? query, int limit = 6}) async =>
+      listOf(await _api.get('/ai/recommendations', query: {'query': query?.trim(), 'limit': limit}), DesignModel.fromJson);
 
   // ── AI design studio ────────────────────────────────────────────────────────
-  // TODO: POST /api/ai/designs
+  // POST /api/ai/designs
   Future<List<DesignConcept>> generateDesigns({
     required String prompt, required String category,
     required String color, required String fabric,
-  }) async {
-    await Future.delayed(const Duration(seconds: 2));
-    final stamp = DateTime.now().millisecondsSinceEpoch;
-    const titles = ['Classic Elegance', 'Modern Twist', 'Royal Style', 'Minimalist'];
-    return [
-      for (var i = 0; i < titles.length; i++)
-        DesignConcept(
-          id: 'AID$stamp$i', title: titles[i],
-          category: category, color: color, fabric: fabric,
-        ),
-    ];
-  }
+  }) async =>
+      listOf(await _api.post('/ai/designs', {
+        'prompt': prompt, 'category': category, 'color': color, 'fabric': fabric,
+      }), DesignConcept.fromJson);
 
-  // TODO: POST /api/ai/designs/:id/send
-  Future<bool> sendDesignToTailor(String designId, String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return true;
-  }
+  // POST /api/ai/designs/:id/send
+  Future<void> sendDesignToTailor(String designId, String tailorId) =>
+      _api.post('/ai/designs/$designId/send', {'tailor_id': tailorId});
 
   // ── Virtual try-on ──────────────────────────────────────────────────────────
-  // TODO: POST /api/ai/try-on
-  // Sent as multipart form data. photoPath is the local file picked by the user.
-  Future<TryOnResult?> generateTryOn({required String photoPath, required String garmentType, String? command}) async {
-    await Future.delayed(const Duration(seconds: 3));
-    return TryOnResult(
-      id: 'TRY${DateTime.now().millisecondsSinceEpoch}',
-      garmentType: garmentType, command: command,
-      resultUrl: '', createdAt: DateTime.now(),
-    );
-  }
+  // POST /api/ai/try-on, as multipart form data. Waits for the rendered image.
+  Future<TryOnResult> generateTryOn({required XFile photo, required String garmentType, String? command}) async =>
+      TryOnResult.fromJson(objectOf(await _api.upload('/ai/try-on', fields: {
+        'garment_type': garmentType,
+        if (command != null && command.trim().isNotEmpty) 'command': command.trim(),
+      }, files: {'photo': photo})));
 
-  // TODO: PUT /api/ai/try-on/:id/save
-  Future<bool> saveTryOn(String id) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return true;
-  }
+  // PUT /api/ai/try-on/:id/save
+  Future<TryOnResult> saveTryOn(String id) async =>
+      TryOnResult.fromJson(objectOf(await _api.put('/ai/try-on/$id/save')));
 
   // ── Live streams (watching) ─────────────────────────────────────────────────
   // The video itself needs a streaming service (docs/API.md, decision 12).
-  // These calls carry the list, the viewer count, the chat, likes and gifts.
 
-  // TODO: GET /api/streams?status=live
-  Future<List<LiveStream>> getLiveStreams() async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    final streams = MockData.liveStreams.where((s) => s.status == 'live').toList();
-    final own = MockData.liveStream;
-    if (own != null && own.status == 'live') streams.insert(0, own);
-    return streams;
-  }
+  // GET /api/streams?status=live
+  Future<List<LiveStream>> getLiveStreams() async =>
+      listOf(await _api.get('/streams', query: {'status': 'live'}), LiveStream.fromJson);
 
-  // TODO: POST /api/streams/:id/join
-  // Counts the viewer and returns the stream. A stream that has ended comes
-  // back with status ended.
-  Future<LiveStream?> joinStream(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final idx = MockData.liveStreams.indexWhere((s) => s.id == streamId);
-    if (idx == -1) return null;
-    final stream = MockData.liveStreams[idx];
-    if (stream.status != 'live') return stream;
-    final viewers = stream.viewers + 1;
-    final joined = stream.copyWith(
-      viewers: viewers,
-      peakViewers: viewers > stream.peakViewers ? viewers : stream.peakViewers,
-    );
-    MockData.liveStreams[idx] = joined;
-    return joined;
-  }
+  // POST /api/streams/:id/join. A stream that has ended comes back with status ended.
+  Future<LiveStream> joinStream(String streamId) async =>
+      LiveStream.fromJson(objectOf(await _api.post('/streams/$streamId/join')));
 
-  // TODO: POST /api/streams/:id/leave
-  Future<void> leaveStream(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    final idx = MockData.liveStreams.indexWhere((s) => s.id == streamId);
-    if (idx == -1) return;
-    final stream = MockData.liveStreams[idx];
-    if (stream.viewers > 0) {
-      MockData.liveStreams[idx] = stream.copyWith(viewers: stream.viewers - 1);
-    }
-  }
+  // GET /api/streams/:id
+  Future<LiveStream> getStream(String streamId) async =>
+      LiveStream.fromJson(objectOf(await _api.get('/streams/$streamId')));
 
-  // TODO: GET /api/streams/:id/messages
-  Future<List<LiveMessage>> getStreamMessages(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List<LiveMessage>.from(MockData.liveMessages);
-  }
+  // POST /api/streams/:id/leave
+  Future<void> leaveStream(String streamId) => _api.post('/streams/$streamId/leave');
 
-  // TODO: POST /api/streams/:id/messages
-  // viewerName is only for the mock. The real API reads the user from the token.
-  Future<LiveMessage?> sendStreamMessage(String streamId, String text, {String viewerName = 'You'}) async {
-    await Future.delayed(const Duration(milliseconds: 200));
-    final body = text.trim();
-    if (body.isEmpty) return null;
-    final message = LiveMessage(
-      id: 'LM${DateTime.now().millisecondsSinceEpoch}',
-      viewerName: viewerName, text: body, createdAt: DateTime.now(),
-    );
-    MockData.liveMessages.add(message);
-    return message;
-  }
+  // GET /api/streams/:id/messages
+  Future<List<LiveMessage>> getStreamMessages(String streamId) async =>
+      listOf(await _api.get('/streams/$streamId/messages'), LiveMessage.fromJson);
 
-  // TODO: POST /api/streams/:id/like
-  Future<bool> likeStream(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 150));
-    final idx = MockData.liveStreams.indexWhere((s) => s.id == streamId);
-    if (idx == -1) return false;
-    final stream = MockData.liveStreams[idx];
-    MockData.liveStreams[idx] = stream.copyWith(likes: stream.likes + 1);
-    return true;
-  }
+  // POST /api/streams/:id/messages
+  Future<LiveMessage> sendStreamMessage(String streamId, String text) async =>
+      LiveMessage.fromJson(objectOf(await _api.post('/streams/$streamId/messages', {'text': text.trim()})));
 
-  // TODO: POST /api/streams/:id/gifts
-  // giftName is Star, Rose, Diamond or Crown. The backend charges the viewer's
-  // default payment method and adds the gift to the tailor's stream earnings.
-  Future<bool> sendGift(String streamId, String giftName) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    final gift = MockData.giftTypes.where((g) => g.name == giftName).firstOrNull;
-    final idx = MockData.liveStreams.indexWhere((s) => s.id == streamId);
-    if (gift == null || idx == -1) return false;
-    final stream = MockData.liveStreams[idx];
-    if (stream.status != 'live' || !stream.giftsEnabled) return false;
-    MockData.liveStreams[idx] = stream.copyWith(earnings: stream.earnings + gift.amount);
-    return true;
-  }
+  // POST /api/streams/:id/like
+  Future<void> likeStream(String streamId) => _api.post('/streams/$streamId/like');
+
+  // POST /api/streams/:id/gifts. giftName is Star, Rose, Diamond or Crown, and
+  // is charged to the viewer's default payment method.
+  Future<void> sendGift(String streamId, String giftName) =>
+      _api.post('/streams/$streamId/gifts', {'gift': giftName});
 }

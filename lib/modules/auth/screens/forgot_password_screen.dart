@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../../../core/api/api_client.dart';
+import '../../../core/utils/validators.dart';
 import '../../../core/services/auth_service.dart';
 import 'reset_password_screen.dart';
 
@@ -40,18 +42,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Single
       setState(() => _errorMsg = 'Please enter your email address');
       return;
     }
-    if (!email.contains('@')) {
+    if (!Validators.isEmail(email)) {
       setState(() => _errorMsg = 'Please enter a valid email address');
       return;
     }
     setState(() { _loading = true; _errorMsg = null; });
-    final result = await AuthService().forgotPassword(email);
-    if (!mounted) return;
-    setState(() { _loading = false; _sent = result; });
-    if (result) {
+    try {
+      await AuthService().forgotPassword(email);
+      if (!mounted) return;
+      setState(() { _loading = false; _sent = true; });
       _successCtrl.forward();
-    } else {
-      setState(() => _errorMsg = 'No account found with this email');
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
     }
   }
 
@@ -102,7 +104,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Single
         ),
         const SizedBox(height: 8),
         Text(
-          "No worries! Enter your email and we'll send a reset link.",
+          "No worries! Enter your email and we'll send you a reset code.",
           style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
         ),
         const SizedBox(height: 32),
@@ -182,7 +184,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Single
         ),
         const SizedBox(height: 12),
         Text(
-          'We sent a password reset link to',
+          'We sent a password reset code to',
           style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
           textAlign: TextAlign.center,
         ),
@@ -202,7 +204,7 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> with Single
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
-                  'The email has a reset code and a link. Both expire in 15 minutes. If you did not receive it, check your spam folder.',
+                  'The code expires in 15 minutes. If you did not receive it, check your spam folder.',
                   style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12),
                 ),
               ),

@@ -7,7 +7,6 @@ import '../../../core/services/support_service.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../../support/screens/raise_dispute_screen.dart';
 import '../services/tailor_service.dart';
-import 'my_riders_screen.dart';
 import 'tailor_chat_screen.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -19,64 +18,33 @@ class OrderDetailScreen extends StatefulWidget {
 }
 
 class _OrderDetailScreenState extends State<OrderDetailScreen> {
-  OrderStatus? _selectedStatus;
+  // Replaced by the server's copy after each change.
+  late OrderModel _order = widget.order;
   bool _updatingStatus = false;
   bool _sendingRequest = false;
-  // The rider who delivers the order, once the order is ready.
-  late String? _riderId = widget.order.riderId;
-  late String? _riderName = widget.order.riderName;
-  bool _assigningRider = false;
   // A dispute about this order, raised by the tailor or the customer.
   DisputeModel? _dispute;
 
-  OrderStatus get _status => _selectedStatus ?? widget.order.status;
+  OrderStatus get _status => _order.status;
 
-  bool get _showsRider =>
+  bool get _showsDelivery =>
       _status == OrderStatus.readyForDelivery ||
       _status == OrderStatus.delivered ||
       _status == OrderStatus.completed;
 
-  Future<void> _assignRider() async {
-    final rider = await showAssignRiderSheet(
-      context,
-      tailorId: widget.order.tailorId,
-      currentRiderId: _riderId,
-    );
-    if (rider == null || !mounted) return;
-    setState(() => _assigningRider = true);
-    final updated = await TailorService().assignRider(widget.order.id, rider.id);
-    if (!mounted) return;
-    setState(() {
-      _assigningRider = false;
-      if (updated != null) {
-        _riderId = updated.riderId;
-        _riderName = updated.riderName;
-      }
-    });
-    if (updated != null) AppRefresh.ordersChanged();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          updated != null ? '${rider.name} will deliver this order' : 'Could not assign ${rider.name}. Try another rider.',
-          style: GoogleFonts.poppins(),
-        ),
-        backgroundColor: updated != null ? AppColors.success : AppColors.error,
-      ),
-    );
-  }
-
+  // The card only replaces the report link, so a failed load keeps the link.
   Future<void> _loadDispute() async {
-    final disputes = await SupportService().getMyDisputes();
-    if (!mounted) return;
-    setState(() => _dispute = disputes.where((d) => d.orderId == widget.order.id).firstOrNull);
+    try {
+      final disputes = await SupportService().getMyDisputes();
+      if (!mounted) return;
+      setState(() => _dispute = disputes.where((d) => d.orderId == _order.id).firstOrNull);
+    } catch (_) {}
   }
 
   Future<void> _reportProblem() async {
-    // The status and rider may have changed on this screen since it opened.
-    final order = widget.order.copyWith(status: _status, riderId: _riderId, riderName: _riderName);
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => RaiseDisputeScreen(order: order, byTailor: true)),
+      MaterialPageRoute(builder: (_) => RaiseDisputeScreen(order: _order, byTailor: true)),
     );
     if (mounted) _loadDispute();
   }
@@ -86,12 +54,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     OrderStatus.inProgress,
     OrderStatus.qualityCheck,
     OrderStatus.readyForDelivery,
+    OrderStatus.delivered,
   ];
 
   @override
   void initState() {
     super.initState();
-    _selectedStatus = widget.order.status;
     _loadDispute();
   }
 
@@ -105,6 +73,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         return AppColors.secondary;
       case OrderStatus.readyForDelivery:
         return AppColors.teal;
+      case OrderStatus.delivered:
+        return AppColors.success;
       default:
         return AppColors.textMuted;
     }
@@ -120,6 +90,8 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
         return 'Quality Check';
       case OrderStatus.readyForDelivery:
         return 'Ready';
+      case OrderStatus.delivered:
+        return 'Delivered';
       default:
         return s.name;
     }
@@ -130,21 +102,65 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
       _showDeliveryRequestDialog();
       return;
     }
-    setState(() {
-      _selectedStatus = status;
-      _updatingStatus = true;
-    });
-    await TailorService().updateOrderStatus(widget.order.id, status);
-    AppRefresh.ordersChanged();
-    if (mounted) {
-      setState(() => _updatingStatus = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Status updated to ${_statusLabel(status)}', style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.teal,
-        ),
-      );
+    if (status == OrderStatus.delivered && !await _confirmDelivered()) return;
+    setState(() => _updatingStatus = true);
+    try {
+      final updated = await TailorService().updateOrderStatus(_order.id, status);
+      AppRefresh.ordersChanged();
+      if (!mounted) return;
+      setState(() => _order = updated);
+      showMessage(context, 'Status updated to ${_statusLabel(status)}');
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
+    if (mounted) setState(() => _updatingStatus = false);
+  }
+
+  // Marks the order ready, then asks the customer to choose delivery times.
+  Future<void> _markReadyAndRequestDelivery() async {
+    setState(() => _sendingRequest = true);
+    final service = TailorService();
+    try {
+      if (_order.status != OrderStatus.readyForDelivery) {
+        final updated = await service.updateOrderStatus(_order.id, OrderStatus.readyForDelivery);
+        if (mounted) setState(() => _order = updated);
+      }
+      await service.sendDeliveryRequest(_order.id);
+      AppRefresh.ordersChanged();
+      if (mounted) showMessage(context, 'Delivery request sent!');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) setState(() => _sendingRequest = false);
+  }
+
+  // Delivered cannot be undone, and it starts the customer's three days to
+  // report a problem, so ask first.
+  Future<bool> _confirmDelivered() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.card,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text('Mark as Delivered?',
+            style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16)),
+        content: Text(
+          'Confirm that ${_order.customerName} has received the ${_order.garmentType}.',
+          style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text('Delivered', style: GoogleFonts.poppins(color: AppColors.success, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
   }
 
   void _showDeliveryRequestDialog() {
@@ -158,7 +174,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16),
         ),
         content: Text(
-          'This will notify ${widget.order.customerName} to schedule pickup/delivery for their order.',
+          'This will notify ${_order.customerName} to choose a delivery time for their order.',
           style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
         ),
         actions: [
@@ -167,23 +183,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
             child: Text('Cancel', style: GoogleFonts.poppins(color: AppColors.textMuted)),
           ),
           GestureDetector(
-            onTap: () async {
+            onTap: () {
               Navigator.pop(ctx);
-              setState(() {
-                _selectedStatus = OrderStatus.readyForDelivery;
-                _sendingRequest = true;
-              });
-              await TailorService().sendDeliveryRequest(widget.order.id);
-              AppRefresh.ordersChanged();
-              if (mounted) {
-                setState(() => _sendingRequest = false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Delivery request sent!', style: GoogleFonts.poppins()),
-                    backgroundColor: AppColors.success,
-                  ),
-                );
-              }
+              _markReadyAndRequestDelivery();
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -202,32 +204,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
   }
 
-  // Orders placed in the app store measurements as "C:36 W:30 H:38 L:42 S:15".
-  // The sample orders use "36-30-38" (chest, waist, hip). A value the order does
-  // not have shows as '-'.
+  // Orders store measurements as "Chest 36, Waist 30, Hips 38, Length 40,
+  // Shoulder 15 (in)". A value the order does not have shows as '-'.
   Map<String, String> get _measurements {
-    const names = ['Chest', 'Waist', 'Hip', 'Length', 'Shoulder'];
-    final raw = widget.order.measurements.trim();
-    final values = <String, String>{};
-    if (raw.contains(':')) {
-      const keys = {'C': 'Chest', 'W': 'Waist', 'H': 'Hip', 'L': 'Length', 'S': 'Shoulder'};
-      for (final part in raw.split(RegExp(r'\s+'))) {
-        final pair = part.split(':');
-        final name = keys[pair.first];
-        if (pair.length == 2 && name != null && pair[1].isNotEmpty) values[name] = pair[1];
-      }
-    } else {
-      final parts = raw.split('-');
-      for (var i = 0; i < parts.length && i < names.length; i++) {
-        if (parts[i].trim().isNotEmpty) values[names[i]] = parts[i].trim();
-      }
-    }
+    const names = ['Chest', 'Waist', 'Hips', 'Length', 'Shoulder'];
+    final values = {
+      for (final match in RegExp(r'(Chest|Waist|Hips|Length|Shoulder)\s+([\d.]+)').allMatches(_order.measurements))
+        match.group(1)!: match.group(2)!,
+    };
     return {for (final name in names) name: values[name] == null ? '-' : '${values[name]}"'};
   }
 
   @override
   Widget build(BuildContext context) {
-    final order = widget.order;
+    final order = _order;
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: AuroraBackground(
@@ -257,9 +247,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                       ],
                       const SizedBox(height: 20),
                       _buildStatusUpdate(),
-                      if (_showsRider) ...[
+                      if (_showsDelivery) ...[
                         const SizedBox(height: 20),
-                        _buildRiderSection(),
+                        _buildDeliverySection(),
                       ],
                       const SizedBox(height: 30),
                       _buildChatButton(context, order),
@@ -326,7 +316,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               ),
               StatusBadge(
                 label: order.statusLabel,
-                color: _statusColor(_selectedStatus ?? order.status),
+                color: _statusColor(order.status),
               ),
             ],
           ),
@@ -422,6 +412,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           ),
         ),
         const SizedBox(height: 10),
+        if (_order.designRefUrl case final url?)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.network(url, height: 220, width: double.infinity, fit: BoxFit.cover),
+          )
+        else
         Container(
           height: 160,
           width: double.infinity,
@@ -444,7 +440,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               ),
               const SizedBox(height: 10),
               Text(
-                'Design Reference Image',
+                'The customer has not sent the picture yet',
                 style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12),
               ),
             ],
@@ -457,12 +453,12 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
   Widget _buildStatusUpdate() {
     // A status only moves forward. A pending order is accepted or rejected on
     // the Orders list first, and a finished order cannot change any more.
-    final current = _statusChips.indexOf(_selectedStatus ?? widget.order.status);
+    final current = _statusChips.indexOf(_order.status);
     if (current == -1) {
-      final status = _selectedStatus ?? widget.order.status;
+      final status = _order.status;
       final note = status == OrderStatus.pending
           ? 'Accept this order on the Orders screen before updating its status.'
-          // The other statuses here are rejected, cancelled, delivered and completed.
+          // The other statuses here are rejected, cancelled and completed.
           : 'This order is ${status.name}. Its status can no longer be changed.';
       return GlassCard(
         child: Row(
@@ -504,7 +500,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
           spacing: 10,
           runSpacing: 10,
           children: _statusChips.map((status) {
-            final isSelected = _selectedStatus == status;
+            final isSelected = _status == status;
             final color = _statusColor(status);
             final canPick = !busy && _statusChips.indexOf(status) > current;
             return GestureDetector(
@@ -540,79 +536,40 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
     );
   }
 
-  // Who delivers the order. The rider can be picked or changed while the
-  // order is ready for delivery.
-  Widget _buildRiderSection() {
-    final canChange = _status == OrderStatus.readyForDelivery;
-    final name = _riderName;
-    final String note;
-    if (name == null) {
-      note = canChange ? 'Pick one of your verified riders' : 'No rider was assigned';
-    } else {
-      note = canChange ? 'Collects the order from you' : 'Delivered this order';
-    }
+  // Where and when the tailor delivers the order. The address is the
+  // customer's default address when the order was placed.
+  Widget _buildDeliverySection() {
+    final when = _order.scheduledDelivery;
+    final rows = <(IconData, String)>[
+      (Icons.location_on_rounded, _order.deliveryAddress ?? 'The customer has not saved an address yet. Ask them in the chat.'),
+      if (when != null)
+        (Icons.schedule_rounded, '${when.day}/${when.month}/${when.year}${_order.deliverySlot == null ? '' : ', ${_order.deliverySlot}'}')
+      else if (_order.deliveryRequested)
+        (Icons.hourglass_top_rounded, 'Waiting for the customer to choose a delivery time'),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Delivery Rider',
+          'Delivery',
           style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 15),
         ),
         const SizedBox(height: 10),
         GlassCard(
-          child: Row(
+          child: Column(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: name == null ? AppColors.cardAlt : null,
-                  gradient: name == null
-                      ? null
-                      : LinearGradient(colors: [AppColors.riderColor, Color(0xFFF97316)]),
-                ),
-                child: Center(
-                  child: name == null
-                      ? Icon(Icons.two_wheeler_rounded, color: AppColors.textMuted, size: 20)
-                      : Text(
-                          initialsOf(name),
-                          style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      name ?? 'No rider yet',
-                      style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13),
-                    ),
-                    Text(note, style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
-                  ],
-                ),
-              ),
-              if (_assigningRider)
-                SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(color: AppColors.tealLight, strokeWidth: 2),
-                )
-              else if (canChange)
-                GestureDetector(
-                  onTap: _assignRider,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(colors: [AppColors.teal, AppColors.tealLight]),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Text(
-                      name == null ? 'Assign' : 'Change',
-                      style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 12),
-                    ),
+              for (final (icon, text) in rows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(icon, color: AppColors.tealLight, size: 18),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(text, style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12)),
+                      ),
+                    ],
                   ),
                 ),
             ],

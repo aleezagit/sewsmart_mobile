@@ -97,7 +97,7 @@ async function createOrder(customer, tailor, garmentName, status, days, extra = 
     customer_id: customer.id, customer_name: customer.name, tailor_id: tailor.id, tailor_name: tailor.displayName,
     garment_type: garment.garment, subtotal: garment.price, amount: garment.price, commission_rate: 8.5,
     measurements: 'Chest 36, Waist 30, Hips 38, Shoulder 15, Length 40 (in)', city: customer.city,
-    pickup_code: randomCode(4), delivery_code: randomCode(6), status,
+    status,
     status_history: [{ status, at: created }], created_at: created, ...extra,
   });
   if (status !== 'pending' && status !== 'rejected') {
@@ -125,7 +125,7 @@ async function seedDemo() {
       await Garment.create({ _id: await ids.nextId('G'), tailor_id: tailor.id, garment, price: Math.round((price * t.markup) / 50) * 50, estimated_time: time });
     }
     await Verification.create({
-      _id: await ids.nextId('VR'), user_id: tailor.id, role: 'tailor', cnic_number: t.cnic,
+      _id: await ids.nextId('VR'), user_id: tailor.id, cnic_number: t.cnic,
       status: t.unverified ? 'pending' : 'approved', submitted_at: daysAgo(t.unverified ? 2 : 300),
       documents: t.unverified ? [] : [{ type: 'cnicFront', url: '' }, { type: 'cnicBack', url: '' }, { type: 'businessProof', url: '' }],
     });
@@ -137,19 +137,14 @@ async function seedDemo() {
     for (const title of titles) await PortfolioItem.create({ _id: await ids.nextId('PF'), tailor_id: tailor.id, title });
   }
 
-  const ali = await createUser('rider', { name: 'Ali Raza', email: 'ali@rider.com', phone: '03045678901', city: 'Lahore', is_verified: true, rider: { tailor_id: sana.id, rating: 4.8, cnic_number: '35202-7654321-3' } });
-  await createUser('rider', { name: 'Bilal Ahmed', phone: '03051122334', city: 'Lahore', is_verified: true, rider: { tailor_id: sana.id, is_available: false, rating: 4.6, cnic_number: '35202-1122334-5' } });
-  const usman = await User.create({ _id: await ids.userId('rider'), role: 'rider', name: 'Usman Tariq', phone: '03069988776', city: 'Lahore', rider: { tailor_id: sana.id, cnic_number: '35202-9988776-7' } });
-  await Verification.create({ _id: await ids.nextId('VR'), user_id: usman.id, role: 'rider', cnic_number: '35202-9988776-7', submitted_at: daysAgo(1) });
-
   const bridal = await createOrder(ayesha, sana, 'Bridal Lehenga', 'inProgress', 3, { has_design_ref: true });
   const lawn = await createOrder(ayesha, mehak, 'Lawn Suit', 'completed', 12, { delivered_at: daysAgo(6), completed_at: daysAgo(3) });
   await createOrder(sara, sana, 'Formal Shirt', 'pending', 0.2);
   await createOrder(sara, zara, 'Party Dress', 'readyForDelivery', 7, { delivery_requested: true });
-  await createOrder(ayesha, sana, 'Shalwar Kameez', 'readyForDelivery', 6, { rider_id: ali.id, rider_name: ali.name, delivery_fee: 250, delivery_requested: true });
+  await createOrder(ayesha, sana, 'Shalwar Kameez', 'readyForDelivery', 6, { delivery_requested: true });
   for (let i = 0; i < 4; i += 1) {
     await createOrder(i % 2 ? sara : ayesha, sana, ['Kurta', 'Abaya', 'Lawn Suit', 'Party Dress'][i], 'completed', 20 + i * 25, {
-      rider_id: ali.id, rider_name: ali.name, delivery_fee: 250, delivered_at: daysAgo(15 + i * 25), completed_at: daysAgo(12 + i * 25),
+      delivered_at: daysAgo(15 + i * 25), completed_at: daysAgo(12 + i * 25),
     });
   }
   await createOrder(sara, nadia, 'Bridal Lehenga', 'accepted', 2);
@@ -180,7 +175,6 @@ async function seedDemo() {
     { user_id: ayesha.id, type: 'payment', title: 'Payment Confirmed', body: `Rs 5,000 paid for ${bridal.id}.`, is_read: true, created_at: hoursAgo(72) },
     { user_id: sana.id, type: 'new_order', title: 'New Order', body: 'Sara Ahmed ordered a Formal Shirt.', created_at: hoursAgo(5) },
     { user_id: sana.id, type: 'message', title: 'New Message', body: 'Ayesha Khan: Perfect, thank you so much!', created_at: hoursAgo(1.7) },
-    { user_id: ali.id, type: 'pickup_assigned', title: 'New Pickup', body: `Collect the Shalwar Kameez from ${sana.displayName}.`, created_at: hoursAgo(1) },
   ]);
 
   await Address.create([
@@ -193,7 +187,6 @@ async function seedDemo() {
   ]);
 
   const account = await PayoutAccount.create({ _id: await ids.nextId('PA'), user_id: sana.id, type: 'bank', account_number: '0123-4567890', account_name: 'Sana Fatima', bank_name: 'HBL', is_default: true });
-  await PayoutAccount.create({ _id: await ids.nextId('PA'), user_id: ali.id, type: 'jazzCash', account_number: '03045678901', account_name: 'Ali Raza', is_default: true });
   await Withdrawal.create({ _id: await ids.nextId('WD'), user_id: sana.id, account_id: account.id, amount: 3000, status: 'paid', requested_at: daysAgo(40), paid_at: daysAgo(38) });
 
   const searches = [

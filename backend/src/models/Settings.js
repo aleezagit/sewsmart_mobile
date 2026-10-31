@@ -4,7 +4,6 @@ const { mongoose } = require('./base');
 const settingsSchema = new mongoose.Schema({
   _id: { type: String, default: 'platform' },
   commission_rate: { type: Number, default: 8.5 },
-  delivery_fee: { type: Number, default: 250 },
   categories: { type: [String], default: ['Bridal', 'Eastern', 'Western', 'Casual', 'Children'] },
   notify_new_order: { type: Boolean, default: true },
   notify_order_complete: { type: Boolean, default: true },
@@ -19,7 +18,6 @@ const settingsSchema = new mongoose.Schema({
   toJSON: {
     transform(doc, ret) {
       delete ret._id;
-      delete ret.delivery_fee;
       return ret;
     },
   },

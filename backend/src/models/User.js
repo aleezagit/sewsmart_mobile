@@ -1,6 +1,6 @@
 const { createSchema, mongoose } = require('./base');
 
-const ROLES = ['customer', 'tailor', 'rider'];
+const ROLES = ['customer', 'tailor'];
 
 const measurementSchema = new mongoose.Schema({
   unit: { type: String, enum: ['cm', 'in'], default: 'cm' },
@@ -19,19 +19,11 @@ const tailorSchema = new mongoose.Schema({
   review_count: { type: Number, default: 0 },
 }, { _id: false });
 
-const riderSchema = new mongoose.Schema({
-  tailor_id: { type: String, default: null },
-  is_available: { type: Boolean, default: true },
-  cnic_number: String,
-  rating: { type: Number, default: 0 },
-}, { _id: false });
-
-// One collection for customers, tailors and riders, so a user keeps one ID
+// One collection for customers and tailors, so a user keeps one ID
 // across the app (T001 is both the user and the tailor profile).
 const userSchema = createSchema({
   name: { type: String, required: true },
-  // Riders added by a tailor may have no email and sign in with their phone.
-  email: { type: String, lowercase: true, trim: true },
+  email: { type: String, required: true, lowercase: true, trim: true },
   phone: { type: String, required: true },
   password_hash: String,
   role: { type: String, enum: ROLES, required: true },
@@ -43,14 +35,12 @@ const userSchema = createSchema({
   // Raised by logout and password changes, which ends every older token.
   token_version: { type: Number, default: 0 },
   tailor: tailorSchema,
-  rider: riderSchema,
   measurements: measurementSchema,
   wishlist: { type: [String], default: [] },
-}, { hidden: ['password_hash', 'token_version', 'tailor', 'rider', 'measurements', 'wishlist', 'deleted_at', 'status'] });
+}, { hidden: ['password_hash', 'token_version', 'tailor', 'measurements', 'wishlist', 'deleted_at', 'status'] });
 
-userSchema.index({ email: 1 }, { unique: true, partialFilterExpression: { email: { $type: 'string' } } });
+userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ phone: 1 }, { unique: true });
-userSchema.index({ role: 1, 'rider.tailor_id': 1 });
 
 userSchema.virtual('isActive').get(function isActive() {
   return this.status === 'active' && !this.deleted_at;

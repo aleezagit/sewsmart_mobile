@@ -16,8 +16,6 @@ const { signToken, requireAdmin } = require('../middleware/auth');
 const { refreshTailorRating } = require('../services/ratings');
 const { refundOrder, setStatus } = require('../services/orderAccess');
 const { notify } = require('../services/notifications');
-const { sendSms } = require('../services/messaging');
-const { randomCode } = require('../services/codes');
 const reports = require('../services/reports');
 
 // The admin panel's API (docs/API.md, section 4).
@@ -70,7 +68,7 @@ router.get('/reports', async (req, res) => {
   res.json(await reports.report(range, req.query.from, req.query.to));
 });
 
-// ── Customers, tailors and riders ──────────────────────────────────────────
+// ── Customers and tailors ──────────────────────────────────────────────────
 const accountStatus = (query) => v.oneOf(query.status, 'status', ['active', 'suspended'], { required: false });
 
 async function sumBy(Model, match, groupField, sumField) {
@@ -103,21 +101,6 @@ async function tailorRows(users) {
     id: u.id, name: u.displayName, email: u.email, phone: u.phone, city: u.city || '',
     category: u.tailor?.category || '', status: u.status, is_verified: u.is_verified, created_at: u.created_at,
     total_orders: orders.get(u.id)?.count || 0, rating: u.tailor?.rating || 0, revenue: payments.get(u.id)?.total || 0,
-  }));
-}
-
-async function riderRows(users) {
-  const ids = users.map((u) => u.id);
-  const [deliveries, tailors] = await Promise.all([
-    sumBy(Order, { rider_id: { $in: ids }, delivered_at: { $ne: null } }, 'rider_id'),
-    User.find({ _id: { $in: users.map((u) => u.rider?.tailor_id).filter(Boolean) } }),
-  ]);
-  const tailorName = new Map(tailors.map((t) => [t.id, t.displayName]));
-  return users.map((u) => ({
-    id: u.id, name: u.name, phone: u.phone, city: u.city || '',
-    assigned_tailor_id: u.rider?.tailor_id || null, assigned_tailor_name: tailorName.get(u.rider?.tailor_id) || null,
-    status: u.status, is_verified: u.is_verified, created_at: u.created_at,
-    total_deliveries: deliveries.get(u.id)?.count || 0, rating: u.rider?.rating || 0,
   }));
 }
 
@@ -157,11 +140,8 @@ function accountRoutes(path, role, toRows) {
 // The Customers screen lists customers only (docs/API.md, 4.4).
 accountRoutes('/users', 'customer', customerRows);
 accountRoutes('/tailors', 'tailor', tailorRows);
-accountRoutes('/riders', 'rider', riderRows);
 
 // ── Verifications ──────────────────────────────────────────────────────────
-const EXTRA_DOCUMENT = { tailor: 'businessProof', rider: 'drivingLicence' };
-
 async function verificationRows(requests) {
   const users = await User.find({ _id: { $in: requests.map((r) => r.user_id) } });
   const userOf = new Map(users.map((u) => [u.id, u]));
@@ -173,8 +153,7 @@ async function verificationRows(requests) {
       name: user.displayName,
       phone: user.phone,
       city: user.city || '',
-      role: r.role,
-      documents_submitted: r.documents.some((d) => d.type === EXTRA_DOCUMENT[r.role]),
+      documents_submitted: r.documents.some((d) => d.type === 'businessProof'),
     };
   });
 }
@@ -191,19 +170,12 @@ router.get('/verifications', async (req, res) => {
   res.json(await verificationRows(requests));
 });
 
-// A rider added by a tailor has no password yet, so approval creates one and
-// sends the sign-in details by SMS.
 router.put('/verifications/:id/approve', async (req, res) => {
   const request = await findVerification(req.params.id);
   if (request.status !== 'pending') throw conflict(`This request is already ${request.status}`);
   const user = await User.findById(request.user_id);
   if (!user) throw notFound('The applicant no longer exists');
   user.is_verified = true;
-  if (!user.password_hash) {
-    const password = randomCode(8, 'abcdefghjkmnpqrstuvwxyz23456789');
-    user.password_hash = await bcrypt.hash(password, 10);
-    await sendSms(user.phone, `Your SewSmart rider account is approved. Sign in with ${user.phone} and password ${password}`);
-  }
   await user.save();
   request.status = 'approved';
   request.admin_message = null;

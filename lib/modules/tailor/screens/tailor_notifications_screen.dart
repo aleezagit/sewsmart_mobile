@@ -3,6 +3,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
+import '../../../core/utils/notification_list.dart';
 
 class TailorNotificationsScreen extends StatefulWidget {
   const TailorNotificationsScreen({super.key});
@@ -13,70 +14,9 @@ class TailorNotificationsScreen extends StatefulWidget {
 }
 
 class _TailorNotificationsScreenState
-    extends State<TailorNotificationsScreen> {
-  late List<NotificationModel> _notifications;
-  bool _loading = true;
+    extends State<TailorNotificationsScreen> with NotificationListState {
 
-  final List<NotificationModel> _tailorNotifications = [
-    NotificationModel(
-      id: 'TN001',
-      title: 'New Order Received',
-      body: 'Sara Ahmed placed a new order for Formal Shirt. Review and accept.',
-      type: 'new_order',
-      isRead: false,
-      createdAt: DateTime.now().subtract(const Duration(minutes: 15)),
-    ),
-    NotificationModel(
-      id: 'TN002',
-      title: 'Payment Received',
-      body: 'Rs 4,500 payment received for Bridal Lehenga order ORD001.',
-      type: 'payment',
-      isRead: false,
-      createdAt: DateTime.now().subtract(const Duration(hours: 1)),
-    ),
-    NotificationModel(
-      id: 'TN003',
-      title: 'New Message',
-      body: 'Ayesha Khan sent a message about her bridal lehenga.',
-      type: 'message',
-      isRead: true,
-      createdAt: DateTime.now().subtract(const Duration(hours: 3)),
-    ),
-    NotificationModel(
-      id: 'TN004',
-      title: 'Profile Verified',
-      body: 'Your profile has been verified by Admin. You can now receive more orders.',
-      type: 'verified',
-      isRead: true,
-      createdAt: DateTime.now().subtract(const Duration(days: 1)),
-    ),
-    NotificationModel(
-      id: 'TN005',
-      title: 'New Order Received',
-      body: 'Hina Malik placed a new order for Lawn Suit.',
-      type: 'new_order',
-      isRead: true,
-      createdAt: DateTime.now().subtract(const Duration(days: 2)),
-    ),
-    NotificationModel(
-      id: 'TN006',
-      title: 'Payment Received',
-      body: 'Rs 2,200 payment confirmed for ORD002.',
-      type: 'payment',
-      isRead: true,
-      createdAt: DateTime.now().subtract(const Duration(days: 3)),
-    ),
-  ];
 
-  @override
-  void initState() {
-    super.initState();
-    // MockData.notifications are the customer's, so they are not shown here.
-    _notifications = List.from(_tailorNotifications);
-    Future.delayed(const Duration(milliseconds: 400), () {
-      if (mounted) setState(() => _loading = false);
-    });
-  }
 
   Color _notifColor(String type) {
     switch (type) {
@@ -115,22 +55,10 @@ class _TailorNotificationsScreenState
     return '${diff.inDays}d ago';
   }
 
-  void _markAllRead() {
-    setState(() {
-      _notifications = _notifications.map((n) => NotificationModel(
-        id: n.id,
-        title: n.title,
-        body: n.body,
-        type: n.type,
-        isRead: true,
-        createdAt: n.createdAt,
-      )).toList();
-    });
-  }
 
   @override
   Widget build(BuildContext context) {
-    final unread = _notifications.where((n) => !n.isRead).length;
+    final unread = notifications.where((n) => !n.isRead).length;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -141,7 +69,7 @@ class _TailorNotificationsScreenState
           child: Column(
             children: [
               _buildAppBar(unread),
-              if (_loading)
+              if (loading)
                 Expanded(
                   child: Center(
                     child: CircularProgressIndicator(
@@ -150,7 +78,9 @@ class _TailorNotificationsScreenState
                     ),
                   ),
                 )
-              else if (_notifications.isEmpty)
+              else if (loadError != null)
+                Expanded(child: LoadError(error: loadError!, onRetry: retryLoad))
+              else if (notifications.isEmpty)
                 const Expanded(
                   child: EmptyState(
                     icon: Icons.notifications_none_rounded,
@@ -162,26 +92,15 @@ class _TailorNotificationsScreenState
                 Expanded(
                   child: ListView.builder(
                     padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
-                    itemCount: _notifications.length,
+                    itemCount: notifications.length,
                     itemBuilder: (_, i) {
-                      final n = _notifications[i];
+                      final n = notifications[i];
                       return _NotificationCard(
                         notification: n,
                         color: _notifColor(n.type),
                         icon: _notifIcon(n.type),
                         timeStr: _timeAgo(n.createdAt),
-                        onTap: () {
-                          setState(() {
-                            _notifications[i] = NotificationModel(
-                              id: n.id,
-                              title: n.title,
-                              body: n.body,
-                              type: n.type,
-                              isRead: true,
-                              createdAt: n.createdAt,
-                            );
-                          });
-                        },
+                        onTap: () => markRead(n),
                       );
                     },
                   ),
@@ -225,7 +144,7 @@ class _TailorNotificationsScreenState
           ),
           if (unread > 0)
             GestureDetector(
-              onTap: _markAllRead,
+              onTap: markAllRead,
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
                 decoration: BoxDecoration(

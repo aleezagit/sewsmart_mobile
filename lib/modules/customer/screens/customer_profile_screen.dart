@@ -4,8 +4,8 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
 import '../../../core/utils/app_refresh.dart';
+import '../../../core/utils/validators.dart';
 import '../../auth/screens/login_screen.dart';
 import '../services/customer_service.dart';
 import 'addresses_screen.dart';
@@ -24,20 +24,43 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
   bool _notifications = true;
   bool _signingOut = false;
   int _savedCount = 0;
+  int _totalOrders = 0;
+  int _reviewCount = 0;
 
   @override
   void initState() {
     super.initState();
     _loadSavedCount();
-    // The order count changes when an order is placed.
-    AppRefresh.orders.addListener(_refresh);
+    _loadOrderStats();
+    // The order and review counts change when an order is placed or reviewed.
+    AppRefresh.orders.addListener(_loadOrderStats);
     // The saved count changes when a design is saved or removed anywhere.
     AppRefresh.wishlist.addListener(_loadSavedCount);
   }
 
+  // The counts are extras on this screen, so a failed load leaves the old ones.
   Future<void> _loadSavedCount() async {
-    final saved = await CustomerService().getWishlist();
-    if (mounted) setState(() => _savedCount = saved.length);
+    try {
+      final saved = await CustomerService().getWishlist();
+      if (mounted) setState(() => _savedCount = saved.length);
+    } catch (_) {}
+  }
+
+  // Reviews are listed per tailor, so count this customer's reviews at the
+  // tailors they have ordered from.
+  Future<void> _loadOrderStats() async {
+    try {
+      final service = CustomerService();
+      final orders = await service.getMyOrders();
+      final tailorIds = orders.map((o) => o.tailorId).toSet();
+      final reviews = await Future.wait(tailorIds.map(service.getTailorReviews));
+      final me = _user?.id;
+      if (!mounted) return;
+      setState(() {
+        _totalOrders = orders.length;
+        _reviewCount = reviews.expand((list) => list).where((r) => r.customerId == me).length;
+      });
+    } catch (_) {}
   }
 
   void _openSavedDesigns() {
@@ -46,19 +69,13 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
 
   @override
   void dispose() {
-    AppRefresh.orders.removeListener(_refresh);
+    AppRefresh.orders.removeListener(_loadOrderStats);
     AppRefresh.wishlist.removeListener(_loadSavedCount);
     super.dispose();
   }
 
-  void _refresh() {
-    if (mounted) setState(() {});
-  }
-
   UserModel? get _user => AuthService().currentUser;
 
-  int get _totalOrders => MockData.orders.where((o) => o.customerId == _user?.id).length;
-  int get _reviewCount => MockData.reviews.where((r) => r.customerId == _user?.id).length;
 
   Future<void> _signOut() async {
     setState(() => _signingOut = true);
@@ -244,14 +261,23 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
                 style: GoogleFonts.poppins(color: AppColors.textMuted)),
           ),
           GestureDetector(
-            onTap: () {
-              Navigator.pop(ctx);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Profile updated!', style: GoogleFonts.poppins()),
-                  backgroundColor: AppColors.success,
-                ),
+            onTap: () async {
+              if (!Validators.isMobile(phoneCtrl.text)) {
+                showMessage(ctx, 'Enter a valid mobile number, e.g. 03001234567', success: false);
+                return;
+              }
+              final result = await AuthService().updateProfile(
+                name: nameCtrl.text.trim(),
+                phone: phoneCtrl.text.trim(),
               );
+              if (!mounted) return;
+              if (!result.success) {
+                showMessage(context, result.error ?? 'Could not save your profile', success: false);
+                return;
+              }
+              Navigator.pop(ctx);
+              setState(() {});
+              showMessage(context, 'Profile updated!');
             },
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),

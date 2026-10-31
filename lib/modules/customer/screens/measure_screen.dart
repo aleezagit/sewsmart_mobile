@@ -3,6 +3,8 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../../../core/models/app_models.dart';
+import '../services/customer_service.dart';
 
 class MeasureScreen extends StatefulWidget {
   const MeasureScreen({super.key});
@@ -14,23 +16,49 @@ class MeasureScreen extends StatefulWidget {
 class _MeasureScreenState extends State<MeasureScreen> {
   bool _isCm = true;
   bool _saving = false;
+  bool _loading = true;
 
   static const _weight = 'Weight (kg)';
 
-  // Body measurements with default values, in centimeters because the screen
-  // opens in cm. Weight is always in kilograms.
+  // Body measurements in the unit shown. Weight is always in kilograms.
   final Map<String, TextEditingController> _ctrls = {
-    'Height': TextEditingController(text: '165'),
-    _weight: TextEditingController(text: '60'),
-    'Chest': TextEditingController(text: '91'),
-    'Waist': TextEditingController(text: '76'),
-    'Hips': TextEditingController(text: '97'),
-    'Shoulder': TextEditingController(text: '38'),
-    'Arm Length': TextEditingController(text: '61'),
-    'Inseam': TextEditingController(text: '71'),
-    'Neck': TextEditingController(text: '36'),
-    'Wrist': TextEditingController(text: '15'),
+    for (final label in ['Height', _weight, 'Chest', 'Waist', 'Hips', 'Shoulder', 'Arm Length', 'Inseam', 'Neck', 'Wrist'])
+      label: TextEditingController(),
   };
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  // Fills the form with the set saved last time. A new customer starts empty.
+  Future<void> _load() async {
+    try {
+      final saved = await CustomerService().getMeasurements();
+      if (!mounted) return;
+      if (saved != null) {
+        _isCm = saved.unit == 'cm';
+        final values = {
+          'Height': saved.height, _weight: saved.weight, 'Chest': saved.chest,
+          'Waist': saved.waist, 'Hips': saved.hips, 'Shoulder': saved.shoulder,
+          'Arm Length': saved.armLength, 'Inseam': saved.inseam,
+          'Neck': saved.neck, 'Wrist': saved.wrist,
+        };
+        values.forEach((label, value) => _ctrls[label]!.text = _format(value));
+      }
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  String _format(double value) {
+    final rounded = (value * 10).round() / 10;
+    return rounded == rounded.roundToDouble() ? rounded.toInt().toString() : rounded.toStringAsFixed(1);
+  }
+
+  double _value(String label) => double.parse(_ctrls[label]!.text.trim());
 
   // Switches the unit and converts every length, so 91 cm becomes 35.8 in.
   void _setUnit(bool toCm) {
@@ -41,11 +69,7 @@ class _MeasureScreenState extends State<MeasureScreen> {
         if (entry.key == _weight) continue;
         final value = double.tryParse(entry.value.text.trim());
         if (value == null) continue;
-        final converted = toCm ? value * 2.54 : value / 2.54;
-        final rounded = (converted * 10).round() / 10;
-        entry.value.text = rounded == rounded.roundToDouble()
-            ? rounded.toInt().toString()
-            : rounded.toStringAsFixed(1);
+        entry.value.text = _format(toCm ? value * 2.54 : value / 2.54);
       }
     });
   }
@@ -77,27 +101,23 @@ class _MeasureScreenState extends State<MeasureScreen> {
         .map((e) => e.key)
         .toList();
     if (missing.isNotEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Enter a number for ${missing.join(', ')}', style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.error,
-        ),
-      );
+      showMessage(context, 'Enter a number for ${missing.join(', ')}', success: false);
       return;
     }
     setState(() => _saving = true);
-    await Future.delayed(const Duration(milliseconds: 900));
-    if (mounted) {
-      setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Measurements saved successfully!',
-              style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.success,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+    try {
+      await CustomerService().saveMeasurements(MeasurementModel(
+        unit: _isCm ? 'cm' : 'in',
+        height: _value('Height'), weight: _value(_weight), chest: _value('Chest'),
+        waist: _value('Waist'), hips: _value('Hips'), shoulder: _value('Shoulder'),
+        armLength: _value('Arm Length'), inseam: _value('Inseam'),
+        neck: _value('Neck'), wrist: _value('Wrist'),
+      ));
+      if (mounted) showMessage(context, 'Measurements saved successfully!');
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
+    if (mounted) setState(() => _saving = false);
   }
 
   @override
@@ -113,7 +133,9 @@ class _MeasureScreenState extends State<MeasureScreen> {
             children: [
               _buildAppBar(),
               Expanded(
-                child: SingleChildScrollView(
+                child: _loading
+                    ? Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2))
+                    : SingleChildScrollView(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

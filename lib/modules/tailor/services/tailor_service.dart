@@ -1,264 +1,123 @@
 // ─── Tailor Service ───────────────────────────────────────────────────────────
+// The tailor's side of the API (docs/API.md, section 3). Routes that name the
+// tailor take its id, and the backend checks it against the token. Every
+// method throws [ApiException] with a message to show when the request fails.
+
+import 'package:image_picker/image_picker.dart';
+
+import '../../../core/api/api_client.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
+import '../../../core/utils/validators.dart';
 
 class TailorService {
   static final TailorService _i = TailorService._();
   factory TailorService() => _i;
   TailorService._();
 
-  // TODO: GET /api/orders?tailorId=&status=
-  Future<List<OrderModel>> getOrders(String tailorId, {OrderStatus? status}) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    var list = MockData.orders.where((o) => o.tailorId == tailorId).toList();
-    if (status != null) list = list.where((o) => o.status == status).toList();
-    return list;
-  }
+  final ApiClient _api = ApiClient();
 
-  // TODO: PUT /api/orders/:id/accept
-  Future<bool> acceptOrder(String orderId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final idx = MockData.orders.indexWhere((o) => o.id == orderId);
-    if (idx != -1) {
-      final o = MockData.orders[idx];
-      MockData.orders[idx] = OrderModel(
-        id: o.id, customerId: o.customerId, tailorId: o.tailorId,
-        customerName: o.customerName, tailorName: o.tailorName,
-        garmentType: o.garmentType, status: OrderStatus.accepted,
-        amount: o.amount, measurements: o.measurements, createdAt: o.createdAt,
-      );
-      return true;
-    }
-    return false;
-  }
+  // ── Orders ──────────────────────────────────────────────────────────────────
+  // GET /api/orders?status=
+  Future<List<OrderModel>> getOrders({OrderStatus? status}) async =>
+      listOf(await _api.get('/orders', query: {'status': status?.name}), OrderModel.fromJson);
 
-  // TODO: PUT /api/orders/:id/reject
-  Future<bool> rejectOrder(String orderId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return true;
-  }
+  Future<OrderModel> _order(Future<dynamic> request) async => OrderModel.fromJson(objectOf(await request));
 
-  // TODO: PUT /api/orders/:id/status
-  Future<bool> updateOrderStatus(String orderId, OrderStatus status) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return true;
-  }
+  // PUT /api/orders/:id/accept
+  Future<OrderModel> acceptOrder(String orderId) => _order(_api.put('/orders/$orderId/accept'));
 
-  // TODO: POST /api/orders/:id/delivery-request
-  Future<bool> sendDeliveryRequest(String orderId) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    return true;
-  }
+  // PUT /api/orders/:id/reject
+  Future<OrderModel> rejectOrder(String orderId) => _order(_api.put('/orders/$orderId/reject'));
 
-  // TODO: GET /api/tailors/:id/earnings
-  Future<Map<String, dynamic>> getEarnings(String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return {
-      'total': 148900.0,
-      'thisMonth': 28900.0,
-      'pending': 6300.0,
-      'withdrawn': 112400.0,
-      'monthly': MockData.monthlyEarnings,
-    };
-  }
+  // PUT /api/orders/:id/status. The status only moves forward, up to delivered.
+  Future<OrderModel> updateOrderStatus(String orderId, OrderStatus status) =>
+      _order(_api.put('/orders/$orderId/status', {'status': status.name}));
 
-  // TODO: POST /api/riders (add rider under tailor)
-  // Creates the rider and a verification request for the admin. The rider
-  // cannot take deliveries until the admin approves it.
-  Future<bool> addRider({
-    required String tailorId, required String riderName, required String riderPhone,
-    String? cnicNumber, String? city,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 700));
-    final tailor = MockData.tailors.where((t) => t.id == tailorId).firstOrNull;
-    MockData.riders.add(RiderProfile(
-      id: 'R${DateTime.now().millisecondsSinceEpoch}',
-      name: riderName.trim(), phone: riderPhone.trim(), city: city?.trim() ?? '',
-      isVerified: false, isAvailable: true,
-      totalDeliveries: 0, monthDeliveries: 0, rating: 0,
-      assignedTailorId: tailorId, assignedTailorName: tailor?.name,
-    ));
-    return true;
-  }
+  // POST /api/orders/:id/delivery-request
+  Future<void> sendDeliveryRequest(String orderId) => _api.post('/orders/$orderId/delivery-request');
 
-  // TODO: GET /api/tailors/:id/riders
-  Future<List<RiderProfile>> getRiders(String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    return MockData.riders.where((r) => r.assignedTailorId == tailorId).toList();
-  }
-
-  // TODO: PUT /api/orders/:id/rider
-  // Only a verified, available rider of the order's tailor can be assigned,
-  // and only while the order is ready for delivery. Returns the updated order.
-  Future<OrderModel?> assignRider(String orderId, String riderId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final idx = MockData.orders.indexWhere((o) => o.id == orderId);
-    final rider = MockData.riders.where((r) => r.id == riderId).firstOrNull;
-    if (idx == -1 || rider == null || !rider.isVerified || !rider.isAvailable) return null;
-    final updated = MockData.orders[idx].copyWith(riderId: rider.id, riderName: rider.name);
-    MockData.orders[idx] = updated;
-    return updated;
-  }
-
-  // TODO: PUT /api/riders/:id/verify-pickup
-  Future<bool> verifyRiderPickup(String riderId, String orderId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    return true;
-  }
+  // ── Earnings ────────────────────────────────────────────────────────────────
+  // GET /api/tailors/:id/earnings
+  Future<TailorEarnings> getEarnings(String tailorId) async =>
+      TailorEarnings.fromJson(objectOf(await _api.get('/tailors/$tailorId/earnings')));
 
   // ── Profile ─────────────────────────────────────────────────────────────────
-  // TODO: PUT /api/tailors/:id
-  // name is the business name. phone is stored on the user account, so the mock ignores it.
-  Future<TailorModel?> updateProfile({
+  // GET /api/tailors/:id
+  Future<TailorModel> getProfile(String tailorId) async =>
+      TailorModel.fromJson(objectOf(await _api.get('/tailors/$tailorId')));
+
+  // PUT /api/tailors/:id. name is the business name.
+  Future<TailorModel> updateProfile({
     required String tailorId, String? name, String? phone, String? city,
     int? experienceYears, String? bio,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    final idx = MockData.tailors.indexWhere((t) => t.id == tailorId);
-    if (idx == -1) return null;
-    final current = MockData.tailors[idx];
-    final updated = TailorModel(
-      id: current.id, name: name ?? current.name, category: current.category,
-      city: city ?? current.city, bio: bio ?? current.bio,
-      userAvatar: current.userAvatar, rating: current.rating,
-      priceFrom: current.priceFrom, totalOrders: current.totalOrders,
-      specialties: current.specialties, isVerified: current.isVerified,
-      portfolio: current.portfolio,
-      experienceYears: experienceYears ?? current.experienceYears,
-    );
-    MockData.tailors[idx] = updated;
-    return updated;
-  }
+  }) async =>
+      TailorModel.fromJson(objectOf(await _api.put('/tailors/$tailorId', {
+        'name': ?name,
+        if (phone != null) 'phone': Validators.normalizeMobile(phone),
+        'city': ?city,
+        'experience_years': ?experienceYears, 'bio': ?bio,
+      })));
 
   // ── Portfolio ───────────────────────────────────────────────────────────────
-  // TODO: GET /api/tailors/:id/portfolio
-  Future<List<PortfolioItem>> getPortfolio(String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return MockData.portfolio.where((p) => p.tailorId == tailorId).toList();
-  }
+  // GET /api/tailors/:id/portfolio
+  Future<List<PortfolioItem>> getPortfolio(String tailorId) async =>
+      listOf(await _api.get('/tailors/$tailorId/portfolio'), PortfolioItem.fromJson);
 
-  // TODO: POST /api/tailors/:id/portfolio
-  // Sent as multipart form data. imagePath is the local file picked by the tailor.
-  Future<PortfolioItem?> addPortfolioSample({required String tailorId, required String imagePath, String? title}) async {
-    await Future.delayed(const Duration(milliseconds: 700));
-    final item = PortfolioItem(
-      id: 'PF${DateTime.now().millisecondsSinceEpoch}',
-      tailorId: tailorId, title: title ?? '', imageUrl: imagePath,
-      createdAt: DateTime.now(),
-    );
-    MockData.portfolio.insert(0, item);
-    return item;
-  }
+  // POST /api/tailors/:id/portfolio, as multipart form data.
+  Future<PortfolioItem> addPortfolioSample({required String tailorId, required XFile image, String? title}) async =>
+      PortfolioItem.fromJson(objectOf(await _api.upload('/tailors/$tailorId/portfolio',
+          fields: {if (title != null && title.trim().isNotEmpty) 'title': title.trim()},
+          files: {'image': image})));
 
-  // TODO: DELETE /api/tailors/:id/portfolio/:itemId
-  Future<bool> removePortfolioSample(String tailorId, String itemId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final before = MockData.portfolio.length;
-    MockData.portfolio.removeWhere((p) => p.id == itemId && p.tailorId == tailorId);
-    return MockData.portfolio.length < before;
-  }
+  // DELETE /api/tailors/:id/portfolio/:itemId
+  Future<void> removePortfolioSample(String tailorId, String itemId) =>
+      _api.delete('/tailors/$tailorId/portfolio/$itemId');
 
   // ── Price list ──────────────────────────────────────────────────────────────
-  // TODO: GET /api/tailors/:id/garments
-  Future<List<GarmentPricing>> getGarments(String tailorId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List<GarmentPricing>.from(MockData.tailorGarments);
-  }
+  // GET /api/tailors/:id/garments
+  Future<List<GarmentPricing>> getGarments(String tailorId) async =>
+      listOf(await _api.get('/tailors/$tailorId/garments'), GarmentPricing.fromJson);
 
-  // TODO: POST /api/tailors/:id/garments
-  Future<GarmentPricing?> addGarment({
+  // POST /api/tailors/:id/garments
+  Future<GarmentPricing> addGarment({
     required String tailorId, required String garment,
     required double price, required String estimatedTime,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    final item = GarmentPricing(
-      id: 'G${DateTime.now().millisecondsSinceEpoch}',
-      garment: garment, price: price, estimatedTime: estimatedTime,
-    );
-    MockData.tailorGarments.add(item);
-    return item;
-  }
+  }) async =>
+      GarmentPricing.fromJson(objectOf(await _api.post('/tailors/$tailorId/garments', {
+        'garment': garment, 'price': price, 'estimated_time': estimatedTime,
+      })));
 
-  // TODO: PUT /api/tailors/:id/garments/:garmentId
-  Future<GarmentPricing?> updateGarment({
+  // PUT /api/tailors/:id/garments/:garmentId
+  Future<GarmentPricing> updateGarment({
     required String tailorId, required String garmentId,
     String? garment, double? price, String? estimatedTime,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 400));
-    final idx = MockData.tailorGarments.indexWhere((g) => g.id == garmentId);
-    if (idx == -1) return null;
-    final current = MockData.tailorGarments[idx];
-    final updated = GarmentPricing(
-      id: current.id, garment: garment ?? current.garment,
-      price: price ?? current.price,
-      estimatedTime: estimatedTime ?? current.estimatedTime,
-    );
-    MockData.tailorGarments[idx] = updated;
-    return updated;
-  }
+  }) async =>
+      GarmentPricing.fromJson(objectOf(await _api.put('/tailors/$tailorId/garments/$garmentId', {
+        'garment': ?garment, 'price': ?price, 'estimated_time': ?estimatedTime,
+      })));
 
-  // TODO: DELETE /api/tailors/:id/garments/:garmentId
-  Future<bool> removeGarment(String tailorId, String garmentId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final before = MockData.tailorGarments.length;
-    MockData.tailorGarments.removeWhere((g) => g.id == garmentId);
-    return MockData.tailorGarments.length < before;
-  }
+  // DELETE /api/tailors/:id/garments/:garmentId
+  Future<void> removeGarment(String tailorId, String garmentId) =>
+      _api.delete('/tailors/$tailorId/garments/$garmentId');
 
   // ── Live stream ─────────────────────────────────────────────────────────────
-  // TODO: POST /api/streams
-  Future<LiveStream?> startStream({
-    required String tailorId, required String title,
-    required String category, bool giftsEnabled = true,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    if (title.trim().isEmpty) return null;
-    final stream = LiveStream(
-      id: 'LIVE${DateTime.now().millisecondsSinceEpoch}',
-      tailorId: tailorId, title: title.trim(), category: category,
-      status: 'live', startedAt: DateTime.now(), giftsEnabled: giftsEnabled,
-    );
-    MockData.liveStream = stream;
-    return stream;
-  }
+  Future<LiveStream> _stream(Future<dynamic> request) async => LiveStream.fromJson(objectOf(await request));
 
-  // TODO: GET /api/streams/:id
-  Future<LiveStream?> getStream(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final stream = MockData.liveStream;
-    if (stream == null || stream.id != streamId) return null;
-    if (stream.status != 'live') return stream;
-    return stream.copyWith(
-      durationSeconds: DateTime.now().difference(stream.startedAt).inSeconds,
-    );
-  }
+  // POST /api/streams
+  Future<LiveStream> startStream({required String title, required String category, bool giftsEnabled = true}) =>
+      _stream(_api.post('/streams', {'title': title.trim(), 'category': category, 'gifts_enabled': giftsEnabled}));
 
-  // TODO: GET /api/streams/:id/messages
-  Future<List<LiveMessage>> getStreamMessages(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return List<LiveMessage>.from(MockData.liveMessages);
-  }
+  // GET /api/streams/:id
+  Future<LiveStream> getStream(String streamId) => _stream(_api.get('/streams/$streamId'));
 
-  // TODO: PUT /api/streams/:id/pin
-  // garmentId is an item from the tailor's price list.
-  Future<bool> pinStreamItem(String streamId, String garmentId) async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    final stream = MockData.liveStream;
-    if (stream == null || stream.id != streamId) return false;
-    MockData.liveStream = stream.copyWith(pinnedGarmentId: garmentId);
-    return true;
-  }
+  // GET /api/streams/:id/messages
+  Future<List<LiveMessage>> getStreamMessages(String streamId) async =>
+      listOf(await _api.get('/streams/$streamId/messages'), LiveMessage.fromJson);
 
-  // TODO: PUT /api/streams/:id/end
-  Future<LiveStream?> endStream(String streamId) async {
-    await Future.delayed(const Duration(milliseconds: 500));
-    final stream = MockData.liveStream;
-    if (stream == null || stream.id != streamId) return null;
-    final ended = stream.copyWith(
-      status: 'ended',
-      durationSeconds: DateTime.now().difference(stream.startedAt).inSeconds,
-    );
-    MockData.liveStream = ended;
-    return ended;
-  }
+  // PUT /api/streams/:id/pin. garmentId is an item from the tailor's price list.
+  Future<LiveStream> pinStreamItem(String streamId, String garmentId) =>
+      _stream(_api.put('/streams/$streamId/pin', {'garment_id': garmentId}));
+
+  // PUT /api/streams/:id/end
+  Future<LiveStream> endStream(String streamId) => _stream(_api.put('/streams/$streamId/end'));
 }

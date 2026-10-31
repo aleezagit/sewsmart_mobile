@@ -44,23 +44,19 @@ router.post('/register', async (req, res) => {
       experience_years: v.number(req.body.experience_years, 'Years of experience', { min: 0, max: 80, integer: true, required: false }) || 0,
     };
   }
-  if (role === 'rider') user.rider = {};
   await user.save();
-  // Tailors and riders wait for the admin. The request gets its documents
-  // from the Verification screen.
-  if (role !== 'customer') await Verification.create({ _id: await nextId('VR'), user_id: user.id, role });
+  // Tailors wait for the admin. The request gets its documents from the
+  // Verification screen.
+  if (role === 'tailor') await Verification.create({ _id: await nextId('VR'), user_id: user.id });
 
   res.status(201).json(session(user));
 });
 
-// `email` may also be a phone number, because riders added by a tailor sign in
-// with the phone number the tailor entered.
 router.post('/login', async (req, res) => {
-  const login = v.text(req.body.email, 'Email');
+  const email = v.text(req.body.email, 'Email').toLowerCase();
   const password = typeof req.body.password === 'string' ? req.body.password : '';
-  const query = v.isEmail(login) ? { email: login.toLowerCase() } : { phone: v.normalizePhone(login) };
-  const user = await User.findOne({ ...query, deleted_at: null });
-  if (!user || !user.password_hash || !(await bcrypt.compare(password, user.password_hash))) {
+  const user = await User.findOne({ email, deleted_at: null });
+  if (!user || !(await bcrypt.compare(password, user.password_hash))) {
     throw unauthorized('Invalid Credentials');
   }
   if (user.status !== 'active') throw forbidden('Your account is suspended. Contact SewSmart support');

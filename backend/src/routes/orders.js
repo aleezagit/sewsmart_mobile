@@ -11,9 +11,7 @@ const { badRequest, notFound, conflict } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
 const { imageUpload, fileUrl } = require('../middleware/upload');
 const { findOrderFor, setStatus, refundOrder } = require('../services/orderAccess');
-const { orderView } = require('../services/views');
 const { checkCoupon } = require('../services/coupons');
-const { randomCode } = require('../services/codes');
 const { notify } = require('../services/notifications');
 
 const router = express.Router();
@@ -21,22 +19,23 @@ const customerOnly = requireRole('customer');
 const tailorOnly = requireRole('tailor');
 
 const STATUS_LABEL = {
-  accepted: 'accepted', inProgress: 'in progress', qualityCheck: 'in quality check', readyForDelivery: 'ready for pickup',
+  accepted: 'accepted', inProgress: 'in progress', qualityCheck: 'in quality check', readyForDelivery: 'ready for delivery',
+  delivered: 'delivered',
 };
 
-// The signed-in user's orders, newest first: a customer's own orders, a
-// tailor's received orders or a rider's deliveries.
+// The signed-in user's orders, newest first: a customer's own orders or a
+// tailor's received orders.
 router.get('/', async (req, res) => {
-  const field = { customer: 'customer_id', tailor: 'tailor_id', rider: 'rider_id' }[req.user.role];
+  const field = req.user.role === 'customer' ? 'customer_id' : 'tailor_id';
   const filter = { [field]: req.user.id };
   const status = v.oneOf(req.query.status, 'Status', Order.STATUSES, { required: false });
   if (status) filter.status = status;
   const orders = await Order.find(filter).sort({ created_at: -1 });
-  res.json(orders.map((o) => orderView(o, req.user)));
+  res.json(orders);
 });
 
 router.get('/:id', async (req, res) => {
-  res.json(orderView(await findOrderFor(req.user, req.params.id), req.user));
+  res.json(await findOrderFor(req.user, req.params.id));
 });
 
 // The price comes from the tailor's price list and the discount from the
@@ -83,13 +82,11 @@ router.post('/', customerOnly, async (req, res) => {
     notes,
     city: address?.city || customer.city,
     delivery_address: address ? [address.street, address.area, address.city].join(', ') : null,
-    pickup_code: randomCode(4),
-    delivery_code: randomCode(6),
   });
   setStatus(order, 'pending');
   await order.save();
   await notify(tailor.id, 'new_order', 'New Order', `${customer.name} ordered a ${garment.garment} (${order.id}).`);
-  res.status(201).json(orderView(order, customer));
+  res.status(201).json(order);
 });
 
 // The design reference image of an order, sent after the order is placed.
@@ -99,7 +96,7 @@ router.post('/:id/design-ref', customerOnly, imageUpload('designs').single('imag
   order.has_design_ref = true;
   order.design_ref_url = fileUrl(req.file);
   await order.save();
-  res.json(orderView(order, req.user));
+  res.json(order);
 });
 
 // ── Tailor actions ─────────────────────────────────────────────────────────
@@ -114,7 +111,7 @@ router.put('/:id/accept', tailorOnly, async (req, res) => {
   setStatus(order, 'accepted');
   await order.save();
   await notify(order.customer_id, 'order', 'Order Accepted', `${order.tailor_name} accepted your ${order.garment_type} order.`);
-  res.json(orderView(order, req.user));
+  res.json(order);
 });
 
 router.put('/:id/reject', tailorOnly, async (req, res) => {
@@ -123,10 +120,11 @@ router.put('/:id/reject', tailorOnly, async (req, res) => {
   await order.save();
   await refundOrder(order.id);
   await notify(order.customer_id, 'order', 'Order Declined', `${order.tailor_name} could not take your ${order.garment_type} order. Any payment has been refunded.`);
-  res.json(orderView(order, req.user));
+  res.json(order);
 });
 
-// The tailor moves an accepted order forward, one or more steps at a time.
+// The tailor moves an accepted order forward, one or more steps at a time,
+// and marks it delivered once the customer has it.
 router.put('/:id/status', tailorOnly, async (req, res) => {
   const order = await findOrderFor(req.user, req.params.id, ['tailor']);
   const status = v.oneOf(req.body.status, 'Status', Order.TAILOR_STEPS.slice(1));
@@ -134,12 +132,13 @@ router.put('/:id/status', tailorOnly, async (req, res) => {
   if (from === -1) throw conflict(`This order is ${order.status}. Its status can no longer be changed`);
   if (Order.TAILOR_STEPS.indexOf(status) <= from) throw conflict('An order status only moves forward');
   setStatus(order, status);
+  if (status === 'delivered') order.delivered_at = new Date();
   await order.save();
-  await notify(order.customer_id, 'order', 'Order Update', `Your ${order.garment_type} is ${STATUS_LABEL[status]}.`);
-  res.json(orderView(order, req.user));
+  await notify(order.customer_id, status === 'delivered' ? 'delivery' : 'order', 'Order Update', `Your ${order.garment_type} is ${STATUS_LABEL[status]}.`);
+  res.json(order);
 });
 
-// Asks the customer to choose pickup and delivery times.
+// Asks the customer to choose a delivery time.
 router.post('/:id/delivery-request', tailorOnly, async (req, res) => {
   const order = await findOrderFor(req.user, req.params.id, ['tailor']);
   if (order.status !== 'readyForDelivery') throw conflict('Mark the order ready for delivery first');
@@ -149,41 +148,18 @@ router.post('/:id/delivery-request', tailorOnly, async (req, res) => {
   res.status(204).end();
 });
 
-// Only a verified, available rider of this tailor, while the order is ready
-// and not picked up yet (docs/API.md, 3.21).
-router.put('/:id/rider', tailorOnly, async (req, res) => {
-  const order = await findOrderFor(req.user, req.params.id, ['tailor']);
-  if (order.status !== 'readyForDelivery') throw conflict('A rider can be assigned once the order is ready for delivery');
-  if (order.picked_up_at) throw conflict('The rider has already collected this order');
-  const rider = await User.findOne({ _id: v.text(req.body.rider_id, 'Rider'), role: 'rider', deleted_at: null });
-  if (!rider || rider.rider?.tailor_id !== req.user.id) throw conflict('This rider does not belong to you');
-  if (!rider.is_verified) throw conflict('This rider is not verified yet');
-  if (rider.status !== 'active' || !rider.rider.is_available) throw conflict('This rider is not available');
-
-  const settings = await Settings.current();
-  order.rider_id = rider.id;
-  order.rider_name = rider.name;
-  order.delivery_fee = settings.delivery_fee;
-  await order.save();
-  await notify(rider.id, 'pickup_assigned', 'New Pickup', `Collect ${order.id} (${order.garment_type}) from ${order.tailor_name}.`);
-  res.json(orderView(order, req.user));
-});
-
 // ── Customer actions ───────────────────────────────────────────────────────
 router.put('/:id/delivery-schedule', customerOnly, async (req, res) => {
   const order = await findOrderFor(req.user, req.params.id, ['customer']);
   if (Order.CLOSED.includes(order.status)) throw conflict(`This order is already ${order.status}`);
-  const pickup = new Date(v.text(req.body.pickup_date, 'Pickup date'));
   const delivery = new Date(v.text(req.body.delivery_date, 'Delivery date'));
-  if (Number.isNaN(pickup.getTime()) || Number.isNaN(delivery.getTime())) throw badRequest('Dates must be in YYYY-MM-DD format');
-  if (delivery < pickup) throw badRequest('Delivery cannot be before pickup');
-  order.scheduled_pickup = pickup;
+  if (Number.isNaN(delivery.getTime())) throw badRequest('The date must be in YYYY-MM-DD format');
+  if (delivery < new Date(new Date().toDateString())) throw badRequest('Choose a delivery date from today on');
   order.scheduled_delivery = delivery;
-  order.pickup_slot = v.text(req.body.pickup_slot, 'Pickup time slot', { max: 40 });
   order.delivery_slot = v.text(req.body.delivery_slot, 'Delivery time slot', { max: 40 });
   await order.save();
   await notify(order.tailor_id, 'order', 'Delivery Scheduled', `${order.customer_name} chose a delivery time for ${order.id}.`);
-  res.json(orderView(order, req.user));
+  res.json(order);
 });
 
 router.put('/:id/cancel', customerOnly, async (req, res) => {
@@ -193,7 +169,7 @@ router.put('/:id/cancel', customerOnly, async (req, res) => {
   await order.save();
   await refundOrder(order.id);
   await notify(order.tailor_id, 'order', 'Order Cancelled', `${order.customer_name} cancelled ${order.id}.`);
-  res.json(orderView(order, req.user));
+  res.json(order);
 });
 
 module.exports = router;

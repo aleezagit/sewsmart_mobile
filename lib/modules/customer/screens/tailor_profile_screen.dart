@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
 import '../../../core/services/auth_service.dart';
 import '../../support/screens/report_content_sheet.dart';
 import '../../tailor/screens/tailor_chat_screen.dart';
@@ -21,17 +20,51 @@ class TailorProfileScreen extends StatefulWidget {
 class _TailorProfileScreenState extends State<TailorProfileScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  final List<GarmentPricing> _pricing = MockData.garments;
-  // Only this tailor's reviews.
-  late final List<ReviewModel> _reviews =
-      MockData.reviews.where((r) => r.tailorId == widget.tailor.id).toList();
+  List<PortfolioItem> _portfolio = [];
+  List<GarmentPricing> _pricing = [];
+  List<ReviewModel> _reviews = [];
+  bool _loading = true;
+  Object? _loadError;
+
+  Future<void> _load() async {
+    setState(() { _loading = true; _loadError = null; });
+    final id = widget.tailor.id;
+    try {
+      final service = CustomerService();
+      final results = await Future.wait([
+        service.getTailorPortfolio(id),
+        service.getTailorGarments(id),
+        service.getTailorReviews(id),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _portfolio = results[0] as List<PortfolioItem>;
+        _pricing = results[1] as List<GarmentPricing>;
+        _reviews = results[2] as List<ReviewModel>;
+        _loading = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
+  }
+
+  // Shown in a tab while it loads or when loading failed, otherwise null.
+  Widget? _tabPlaceholder() {
+    if (_loading) return Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2));
+    if (_loadError != null) return LoadError(error: _loadError!, onRetry: _load);
+    return null;
+  }
 
   // Chats belong to an order, so open the chat of the customer's latest order
   // with this tailor. Without an order there is nobody to chat with yet.
   Future<void> _openChat() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
-    final orders = await CustomerService().getMyOrders(user.id);
+    final List<OrderModel> orders;
+    try {
+      orders = await CustomerService().getMyOrders();
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
     if (!mounted) return;
     final withTailor = orders.where((o) => o.tailorId == widget.tailor.id).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
@@ -56,6 +89,7 @@ class _TailorProfileScreenState extends State<TailorProfileScreen> with SingleTi
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _load();
   }
 
   @override
@@ -271,6 +305,11 @@ class _TailorProfileScreenState extends State<TailorProfileScreen> with SingleTi
   }
 
   Widget _buildPortfolio() {
+    final placeholder = _tabPlaceholder();
+    if (placeholder != null) return placeholder;
+    if (_portfolio.isEmpty) {
+      return const EmptyState(icon: Icons.photo_library_outlined, title: 'No portfolio samples yet');
+    }
     final colors = [
       [AppColors.primary, AppColors.primaryLight],
       [AppColors.teal, AppColors.tealLight],
@@ -284,29 +323,64 @@ class _TailorProfileScreenState extends State<TailorProfileScreen> with SingleTi
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2, crossAxisSpacing: 12, mainAxisSpacing: 12, childAspectRatio: 1.0,
       ),
-      itemCount: 6,
-      itemBuilder: (context, i) => Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: colors[i % colors.length],
-          ),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(
+      itemCount: _portfolio.length,
+      itemBuilder: (context, i) {
+        final item = _portfolio[i];
+        final label = item.title.isEmpty ? 'Design ${i + 1}' : item.title;
+        final fallback = Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Icon(Icons.photo_camera_outlined, color: Colors.white.withValues(alpha: 0.7), size: 32),
             const SizedBox(height: 8),
-            Text('Design ${i + 1}', style: GoogleFonts.poppins(color: Colors.white.withValues(alpha: 0.8), fontSize: 12, fontWeight: FontWeight.w500)),
+            Text(label, textAlign: TextAlign.center, style: GoogleFonts.poppins(color: Colors.white.withValues(alpha: 0.8), fontSize: 12, fontWeight: FontWeight.w500)),
           ],
-        ),
-      ),
+        );
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: colors[i % colors.length],
+              ),
+            ),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                if (item.imageUrl.isEmpty)
+                  fallback
+                else
+                  Image.network(item.imageUrl, fit: BoxFit.cover, errorBuilder: (_, _, _) => fallback),
+                // A sample can be reported to the admin.
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: Icon(Icons.flag_outlined, color: Colors.white.withValues(alpha: 0.9), size: 18),
+                    onPressed: () => showReportContentSheet(
+                      context,
+                      targetType: 'design',
+                      targetId: item.id,
+                      itemLabel: 'Design by ${widget.tailor.name}: $label',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildPricingTab() {
+    final placeholder = _tabPlaceholder();
+    if (placeholder != null) return placeholder;
+    if (_pricing.isEmpty) {
+      return const EmptyState(icon: Icons.checkroom_outlined, title: 'No prices listed yet');
+    }
     return ListView.separated(
       padding: const EdgeInsets.all(20),
       itemCount: _pricing.length,
@@ -351,6 +425,8 @@ class _TailorProfileScreenState extends State<TailorProfileScreen> with SingleTi
   }
 
   Widget _buildReviewsTab() {
+    final placeholder = _tabPlaceholder();
+    if (placeholder != null) return placeholder;
     if (_reviews.isEmpty) {
       return const EmptyState(icon: Icons.rate_review_outlined, title: 'No reviews yet', subtitle: 'Be the first to review!');
     }

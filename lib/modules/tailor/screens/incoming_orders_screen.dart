@@ -19,6 +19,7 @@ class _IncomingOrdersScreenState extends State<IncomingOrdersScreen>
   late TabController _tabController;
   List<OrderModel> _orders = [];
   bool _loading = true;
+  Object? _loadError;
   final Map<String, bool> _actionLoading = {};
 
   @override
@@ -38,12 +39,11 @@ class _IncomingOrdersScreenState extends State<IncomingOrdersScreen>
   }
 
   Future<void> _loadOrders() async {
-    final orders = await TailorService().getOrders('T001');
-    if (mounted) {
-      setState(() {
-        _orders = orders;
-        _loading = false;
-      });
+    try {
+      final orders = await TailorService().getOrders();
+      if (mounted) setState(() { _orders = orders; _loading = false; _loadError = null; });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
     }
   }
 
@@ -66,21 +66,14 @@ class _IncomingOrdersScreenState extends State<IncomingOrdersScreen>
 
   Future<void> _handleAccept(OrderModel order) async {
     setState(() => _actionLoading['accept_${order.id}'] = true);
-    final ok = await TailorService().acceptOrder(order.id);
-    if (mounted) {
-      setState(() => _actionLoading['accept_${order.id}'] = false);
-      if (ok) {
-        AppRefresh.ordersChanged();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Order accepted!', style: GoogleFonts.poppins()),
-              backgroundColor: AppColors.success,
-            ),
-          );
-        }
-      }
+    try {
+      await TailorService().acceptOrder(order.id);
+      AppRefresh.ordersChanged();
+      if (mounted) showMessage(context, 'Order accepted!');
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
+    if (mounted) setState(() => _actionLoading['accept_${order.id}'] = false);
   }
 
   Future<void> _handleReject(OrderModel order) async {
@@ -111,19 +104,14 @@ class _IncomingOrdersScreenState extends State<IncomingOrdersScreen>
     );
     if (confirmed != true || !mounted) return;
     setState(() => _actionLoading['reject_${order.id}'] = true);
-    await TailorService().rejectOrder(order.id);
-    if (mounted) {
-      setState(() => _actionLoading['reject_${order.id}'] = false);
+    try {
+      await TailorService().rejectOrder(order.id);
       AppRefresh.ordersChanged();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Order rejected', style: GoogleFonts.poppins()),
-            backgroundColor: AppColors.error,
-          ),
-        );
-      }
+      if (mounted) showMessage(context, 'Order rejected', success: false);
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
+    if (mounted) setState(() => _actionLoading['reject_${order.id}'] = false);
   }
 
   Color _statusColor(OrderStatus s) {
@@ -165,6 +153,11 @@ class _IncomingOrdersScreenState extends State<IncomingOrdersScreen>
                           strokeWidth: 2,
                         ),
                       )
+                    : _loadError != null
+                    ? LoadError(error: _loadError!, onRetry: () {
+                        setState(() => _loading = true);
+                        _loadOrders();
+                      })
                     : TabBarView(
                         controller: _tabController,
                         children: [

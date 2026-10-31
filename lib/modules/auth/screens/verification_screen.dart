@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/services/verification_service.dart';
+import '../../../core/utils/image_picking.dart';
 import '../../../core/utils/validators.dart';
 
-// Tailors and riders send their CNIC and one more document, and the admin
-// verifies them on the Verifications screen. Tailors send business proof,
-// riders a driving licence. The screen shows the state of the last request.
+// Tailors send their CNIC and proof of their business, and the admin verifies
+// them on the Verifications screen. The screen shows the state of the last request.
 class VerificationScreen extends StatefulWidget {
   const VerificationScreen({super.key});
 
@@ -34,21 +34,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
     'Shop photo with the signboard, a registration certificate or a utility bill in the business name',
     Icons.storefront_rounded,
   );
-  static const _drivingLicence = _DocumentType(
-    'drivingLicence', 'Driving Licence', 'A valid motorcycle driving licence', Icons.two_wheeler_rounded);
 
   final _cnicCtrl = TextEditingController();
-  final Set<String> _uploaded = {};
+  // The picked image of each document type.
+  final Map<String, XFile> _uploaded = {};
   VerificationRequest? _request;
+  Object? _loadError;
   bool _loading = true;
   bool _editing = false;
   bool _submitting = false;
 
-  bool get _isRider => AuthService().currentUser?.role == UserRole.rider;
-  Color get _accent => _isRider ? AppColors.riderColor : AppColors.teal;
-  Color get _accentLight => _isRider ? const Color(0xFFF97316) : AppColors.tealLight;
-  List<_DocumentType> get _documents =>
-      [_cnicFront, _cnicBack, _isRider ? _drivingLicence : _businessProof];
+  Color get _accent => AppColors.teal;
+  Color get _accentLight => AppColors.tealLight;
+  static const _documents = [_cnicFront, _cnicBack, _businessProof];
 
   @override
   void initState() {
@@ -63,20 +61,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   Future<void> _load() async {
-    final request = await VerificationService().getMyVerification();
-    if (!mounted) return;
-    setState(() {
-      _request = request;
-      _loading = false;
-      _editing = request == null;
-      if (request != null) _cnicCtrl.text = request.cnicNumber;
-    });
-  }
-
-  void _showMessage(String text, Color color) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(text, style: GoogleFonts.poppins()), backgroundColor: color));
+    setState(() { _loading = true; _loadError = null; });
+    try {
+      final request = await VerificationService().getMyVerification();
+      if (!mounted) return;
+      setState(() {
+        _request = request;
+        _loading = false;
+        _editing = request == null;
+        if (request != null) _cnicCtrl.text = request.cnicNumber;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
   }
 
   // Opens the form again after a rejection or a request for more documents.
@@ -87,45 +84,44 @@ class _VerificationScreenState extends State<VerificationScreen> {
     });
   }
 
-  void _toggleUpload(String type) {
-    setState(() {
-      if (_uploaded.contains(type)) {
-        _uploaded.remove(type);
-      } else {
-        _uploaded.add(type);
-      }
-    });
+  // Picks the image of a document, or removes the one picked before.
+  Future<void> _toggleUpload(_DocumentType document) async {
+    if (_uploaded.containsKey(document.type)) {
+      setState(() => _uploaded.remove(document.type));
+      return;
+    }
+    final image = await pickImage(context, title: document.label);
+    if (image != null && mounted) setState(() => _uploaded[document.type] = image);
   }
 
   Future<void> _submit() async {
     if (!Validators.isCnic(_cnicCtrl.text)) {
-      _showMessage('Enter your 13-digit CNIC number', AppColors.error);
+      showMessage(context, 'Enter your 13-digit CNIC number', success: false);
       return;
     }
-    final missing = _documents.where((d) => !_uploaded.contains(d.type)).toList();
+    final missing = _documents.where((d) => !_uploaded.containsKey(d.type)).toList();
     if (missing.isNotEmpty) {
-      _showMessage('Upload the ${missing.first.label}', AppColors.error);
+      showMessage(context, 'Upload the ${missing.first.label}', success: false);
       return;
     }
     setState(() => _submitting = true);
-    // Uploads are simulated until an image picker is added, so each document
-    // is sent as a file name only.
-    final request = await VerificationService().submitVerification(
-      cnicNumber: _cnicCtrl.text,
-      documents: {for (final d in _documents) d.type: '${d.type}.jpg'},
-    );
-    if (!mounted) return;
-    setState(() {
-      _submitting = false;
-      if (request != null) {
+    try {
+      final request = await VerificationService().submitVerification(
+        cnicNumber: _cnicCtrl.text,
+        documents: {for (final d in _documents) d.type: _uploaded[d.type]!},
+      );
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
         _request = request;
         _editing = false;
-      }
-    });
-    _showMessage(
-      request != null ? 'Documents sent. The admin will review them soon.' : 'Could not send the documents. Try again.',
-      request != null ? AppColors.success : AppColors.error,
-    );
+      });
+      showMessage(context, 'Documents sent. The admin will review them soon.');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      showError(context, e);
+    }
   }
 
   @override
@@ -134,7 +130,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: AuroraBackground(
-        orb1: _isRider ? AppColors.orangeOrb : AppColors.tealOrb,
+        orb1: AppColors.tealOrb,
         orb2: AppColors.purpleOrb,
         child: SafeArea(
           child: Column(
@@ -143,6 +139,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
               Expanded(
                 child: _loading
                     ? Center(child: CircularProgressIndicator(color: _accentLight, strokeWidth: 2))
+                    : _loadError != null
+                    ? LoadError(error: _loadError!, onRetry: _load)
                     : SingleChildScrollView(
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
                         child: Column(
@@ -183,9 +181,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       icon = Icons.verified_rounded;
       color = AppColors.success;
       title = 'Verified';
-      body = _isRider
-          ? 'You can be assigned deliveries. Your documents are on file.'
-          : 'Customers see the verified badge on your profile.';
+      body = 'Customers see the verified badge on your profile.';
     } else if (request.status == 'rejected') {
       icon = Icons.cancel_rounded;
       color = AppColors.error;
@@ -288,13 +284,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        _isRider ? 'Get verified to take deliveries' : 'Get the verified badge',
+                        'Get the verified badge',
                         style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 14),
                       ),
                       Text(
-                        _isRider
-                            ? 'The admin checks your CNIC and driving licence before you can be assigned deliveries.'
-                            : 'Customers trust verified tailors more. Send your CNIC and proof of your business to the admin.',
+                        'Customers trust verified tailors more. Send your CNIC and proof of your business to the admin.',
                         style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12),
                       ),
                     ],
@@ -323,9 +317,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
         const SizedBox(height: 12),
         ..._documents.map((d) => _UploadTile(
               document: d,
-              uploaded: _uploaded.contains(d.type),
+              uploaded: _uploaded.containsKey(d.type),
               color: _accentLight,
-              onTap: () => _toggleUpload(d.type),
+              onTap: () => _toggleUpload(d),
             )),
         const SizedBox(height: 4),
         Row(

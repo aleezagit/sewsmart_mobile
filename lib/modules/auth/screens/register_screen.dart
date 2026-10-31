@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/models/app_models.dart';
 import '../../../core/utils/validators.dart';
@@ -83,13 +84,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() { _loading = true; _errorMsg = null; });
 
     if (_role == UserRole.customer) {
-      final sent = await AuthService().sendOtp(phone);
-      if (!mounted) return;
-      setState(() => _loading = false);
-      if (sent) {
-        setState(() { _step = 2; _successMsg = 'OTP sent to $phone'; });
-      } else {
-        setState(() => _errorMsg = 'Failed to send OTP');
+      try {
+        await AuthService().sendOtp(phone);
+        if (mounted) setState(() { _loading = false; _step = 2; _successMsg = 'OTP sent to $phone'; });
+      } on ApiException catch (e) {
+        if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
       }
     } else {
       await _completeRegistration();
@@ -103,13 +102,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
     setState(() { _loading = true; _errorMsg = null; });
-    final verified = await AuthService().verifyOtp(_phoneCtrl.text.trim(), otp);
-    if (!mounted) return;
-    if (verified) {
-      await _completeRegistration();
-    } else {
-      setState(() { _loading = false; _errorMsg = 'Invalid OTP. Use 1234 for demo.'; });
+    try {
+      await AuthService().verifyOtp(_phoneCtrl.text.trim(), otp);
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
+      return;
     }
+    if (mounted) await _completeRegistration();
   }
 
   Future<void> _completeRegistration() async {
@@ -120,21 +119,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       password: _passCtrl.text.trim(),
       role: _role,
       city: _cityCtrl.text.trim().isEmpty ? null : _cityCtrl.text.trim(),
+      experienceYears: _role == UserRole.tailor ? int.tryParse(_experienceCtrl.text.trim()) : null,
+      specialties: _role == UserRole.tailor && _specialtiesCtrl.text.trim().isNotEmpty
+          ? _specialtiesCtrl.text.trim()
+          : null,
     );
     if (!mounted) return;
     setState(() => _loading = false);
     if (result.success && result.user != null) {
-      Widget destination;
-      switch (result.user!.role) {
-        case UserRole.customer:
-          destination = const MainNavigationCustomer();
-        case UserRole.tailor:
-          destination = const MainNavigationTailor();
-        case UserRole.rider:
-          destination = const MainNavigationRider();
-      }
       Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => destination),
+        MaterialPageRoute(builder: (_) => homeFor(result.user!.role)),
         (route) => false,
       );
     } else {
@@ -233,8 +227,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
             RoleChip(label: 'Customer', icon: Icons.person_rounded, selected: _role == UserRole.customer, onTap: () => setState(() => _role = UserRole.customer), color: AppColors.customerColor),
             const SizedBox(width: 10),
             RoleChip(label: 'Tailor', icon: Icons.cut_rounded, selected: _role == UserRole.tailor, onTap: () => setState(() => _role = UserRole.tailor), color: AppColors.tailorColor),
-            const SizedBox(width: 10),
-            RoleChip(label: 'Rider', icon: Icons.delivery_dining_rounded, selected: _role == UserRole.rider, onTap: () => setState(() => _role = UserRole.rider), color: AppColors.riderColor),
           ],
         ),
         const SizedBox(height: 22),
@@ -310,16 +302,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
         GestureDetector(
           onTap: () async {
             setState(() { _loading = true; _errorMsg = null; });
-            await AuthService().sendOtp(_phoneCtrl.text.trim());
-            if (mounted) setState(() { _loading = false; _successMsg = 'OTP resent!'; });
+            try {
+              await AuthService().sendOtp(_phoneCtrl.text.trim());
+              if (mounted) setState(() { _loading = false; _successMsg = 'OTP resent!'; });
+            } on ApiException catch (e) {
+              if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
+            }
           },
           child: Text(
             'Resend OTP',
             style: GoogleFonts.poppins(color: AppColors.primaryLight, fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ),
-        const SizedBox(height: 8),
-        Text('Demo OTP: 1234', style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
       ],
     );
   }

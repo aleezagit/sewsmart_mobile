@@ -1,13 +1,21 @@
 const express = require('express');
 const Payment = require('../models/Payment');
+const config = require('../config');
 const v = require('../utils/validate');
-const { badRequest, conflict } = require('../utils/errors');
+const { badRequest, conflict, notFound } = require('../utils/errors');
 const { paymentId } = require('../utils/ids');
 const { findOrderFor } = require('../services/orderAccess');
 const { charge } = require('../services/paymentGateway');
 const { notify } = require('../services/notifications');
 
 const router = express.Router();
+
+// The account customers transfer to when they pay by bank. 404 until it is
+// set in the server's settings (.env).
+router.get('/bank-account', (req, res) => {
+  if (!config.bankAccount.account_number) throw notFound('Bank transfer is not available right now');
+  res.json(config.bankAccount);
+});
 
 // Pays an order in full. The amount is the order's own, never the app's.
 router.post('/', async (req, res) => {

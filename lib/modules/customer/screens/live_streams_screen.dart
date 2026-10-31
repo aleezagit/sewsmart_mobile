@@ -17,6 +17,7 @@ class LiveStreamsScreen extends StatefulWidget {
 class _LiveStreamsScreenState extends State<LiveStreamsScreen> {
   List<LiveStream> _streams = [];
   bool _loading = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -25,12 +26,12 @@ class _LiveStreamsScreenState extends State<LiveStreamsScreen> {
   }
 
   Future<void> _load() async {
-    final streams = await CustomerService().getLiveStreams();
-    if (!mounted) return;
-    setState(() {
-      _streams = streams;
-      _loading = false;
-    });
+    try {
+      final streams = await CustomerService().getLiveStreams();
+      if (mounted) setState(() { _streams = streams; _loading = false; _loadError = null; });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
   }
 
   Future<void> _open(LiveStream stream) async {
@@ -57,6 +58,11 @@ class _LiveStreamsScreenState extends State<LiveStreamsScreen> {
                     ? Center(
                         child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2),
                       )
+                    : _loadError != null
+                    ? LoadError(error: _loadError!, onRetry: () {
+                        setState(() => _loading = true);
+                        _load();
+                      })
                     : RefreshIndicator(
                         color: AppColors.primaryLight,
                         backgroundColor: AppColors.card,

@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/models/app_models.dart';
+import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../../../navigation/app_router.dart';
 import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
@@ -61,10 +64,15 @@ class _SplashScreenState extends State<SplashScreen> with TickerProviderStateMix
     await Future.delayed(const Duration(milliseconds: 600));
     if (!mounted) return;
     _textController.forward();
-    await Future.delayed(const Duration(milliseconds: 1600));
+    // A user who signed in before goes straight to their home screen.
+    final results = await Future.wait([
+      AuthService().restoreSession(),
+      Future.delayed(const Duration(milliseconds: 1600)),
+    ]);
+    final user = results.first as UserModel?;
     if (mounted) {
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        MaterialPageRoute(builder: (_) => user == null ? const LoginScreen() : homeFor(user.role)),
       );
     }
   }

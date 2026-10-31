@@ -24,6 +24,12 @@ module.exports = {
     pass: env.SMTP_PASS,
     from: env.MAIL_FROM || 'SewSmart <no-reply@sewsmart.app>',
   },
+  bankAccount: {
+    bank_name: env.BANK_NAME || '',
+    account_title: env.BANK_ACCOUNT_TITLE || '',
+    account_number: env.BANK_ACCOUNT_NUMBER || '',
+    iban: env.BANK_IBAN || '',
+  },
   tryOnServiceUrl: (env.TRYON_SERVICE_URL || '').replace(/\/$/, ''),
   admin: {
     email: env.ADMIN_EMAIL || 'admin@sewsmart.com',

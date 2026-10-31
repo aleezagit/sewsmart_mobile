@@ -35,7 +35,7 @@ function fileUrl(file) {
 
 // Verification documents, one image per type (docs/API.md, 3.22).
 const documentUpload = imageUpload('documents').fields(
-  ['cnicFront', 'cnicBack', 'businessProof', 'drivingLicence'].map((name) => ({ name, maxCount: 1 })),
+  ['cnicFront', 'cnicBack', 'businessProof'].map((name) => ({ name, maxCount: 1 })),
 );
 
 // The uploaded documents of the given types as `{ type, url }`.

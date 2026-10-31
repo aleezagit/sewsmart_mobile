@@ -18,9 +18,11 @@ class _AiDesignScreenState extends State<AiDesignScreen> {
   String _selectedColor = 'Red';
   String _selectedFabric = 'Silk';
   bool _generating = false;
-  bool _hasResult = false;
+  List<DesignConcept> _concepts = [];
+  bool get _hasResult => _concepts.isNotEmpty;
   // The design the customer picked from the results, if any.
   int? _selectedDesign;
+  bool _sending = false;
 
   final _categories = [
     'Bridal', 'Shalwar Kameez', 'Formal', 'Casual', 'Abaya', 'Lehenga',
@@ -40,42 +42,42 @@ class _AiDesignScreenState extends State<AiDesignScreen> {
 
   Future<void> _generate() async {
     if (_promptCtrl.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please describe your design first',
-              style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.warning,
-        ),
-      );
+      showMessage(context, 'Please describe your design first', success: false);
       return;
     }
     setState(() {
       _generating = true;
-      _hasResult = false;
+      _concepts = [];
       _selectedDesign = null;
     });
-    await Future.delayed(const Duration(seconds: 2));
-    if (mounted) {
-      setState(() {
-        _generating = false;
-        _hasResult = true;
-      });
+    try {
+      final concepts = await CustomerService().generateDesigns(
+        prompt: _promptCtrl.text.trim(),
+        category: _selectedCategory,
+        color: _selectedColor,
+        fabric: _selectedFabric,
+      );
+      if (mounted) setState(() { _generating = false; _concepts = concepts; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _generating = false);
+      showError(context, e);
     }
-  }
-
-  void _showMessage(String text, Color color) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(text, style: GoogleFonts.poppins()), backgroundColor: color));
   }
 
   // The customer picks the tailor who receives the selected design.
   Future<void> _sendToTailor() async {
-    if (_selectedDesign == null) {
-      _showMessage('Select a design first', AppColors.warning);
+    if (_selectedDesign == null || _sending) {
+      if (_selectedDesign == null) showMessage(context, 'Select a design first', success: false);
       return;
     }
-    final tailors = await CustomerService().getTailors();
+    final List<TailorModel> tailors;
+    try {
+      tailors = await CustomerService().getTailors();
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
     if (!mounted) return;
     final tailor = await showModalBottomSheet<TailorModel>(
       context: context,
@@ -87,10 +89,14 @@ class _AiDesignScreenState extends State<AiDesignScreen> {
       builder: (_) => _TailorPicker(tailors: tailors, category: _selectedCategory),
     );
     if (tailor == null || !mounted) return;
-    // The designs here are not generated through CustomerService yet, so there
-    // is no design id to send. Once _generate calls generateDesigns, call
-    // CustomerService().sendDesignToTailor(conceptId, tailor.id) here.
-    _showMessage('Design sent to ${tailor.name}', AppColors.success);
+    setState(() => _sending = true);
+    try {
+      await CustomerService().sendDesignToTailor(_concepts[_selectedDesign!].id, tailor.id);
+      if (mounted) showMessage(context, 'Design sent to ${tailor.name}');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) setState(() => _sending = false);
   }
 
   @override
@@ -445,12 +451,10 @@ class _AiDesignScreenState extends State<AiDesignScreen> {
           mainAxisSpacing: 12,
           childAspectRatio: 0.72,
           children: List.generate(
-            4,
+            _concepts.length,
             (i) => _DesignCard(
               index: i,
-              category: _selectedCategory,
-              color: _selectedColor,
-              fabric: _selectedFabric,
+              concept: _concepts[i],
               selected: _selectedDesign == i,
               onSelect: () => setState(() => _selectedDesign = i),
             ),
@@ -607,14 +611,12 @@ class _SelectChip extends StatelessWidget {
 
 class _DesignCard extends StatelessWidget {
   final int index;
-  final String category, color, fabric;
+  final DesignConcept concept;
   final bool selected;
   final VoidCallback onSelect;
   const _DesignCard(
       {required this.index,
-      required this.category,
-      required this.color,
-      required this.fabric,
+      required this.concept,
       required this.selected,
       required this.onSelect});
 
@@ -627,7 +629,6 @@ class _DesignCard extends StatelessWidget {
       [AppColors.warning, AppColors.gold],
     ];
     final g = gradients[index % gradients.length];
-    const names = ['Classic Elegance', 'Modern Twist', 'Royal Style', 'Minimalist'];
 
     return Container(
       decoration: BoxDecoration(
@@ -677,12 +678,15 @@ class _DesignCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(names[index % names.length],
-                    style: GoogleFonts.poppins(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 11)),
-                Text('$category · $fabric',
+                Tooltip(
+                  message: concept.description,
+                  child: Text(concept.title,
+                      style: GoogleFonts.poppins(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 11)),
+                ),
+                Text('${concept.category} · ${concept.fabric}',
                     style: GoogleFonts.poppins(
                         color: AppColors.textMuted, fontSize: 9)),
                 const SizedBox(height: 6),

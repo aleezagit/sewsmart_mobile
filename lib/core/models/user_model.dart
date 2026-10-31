@@ -1,7 +1,7 @@
 // ─── User Model ───────────────────────────────────────────────────────────────
-// API-ready: matches expected JSON response from backend
+// The user object of GET /api/users/me and the login response.
 
-enum UserRole { customer, tailor, rider }
+enum UserRole { customer, tailor }
 
 class UserModel {
   final String id;
@@ -35,15 +35,8 @@ class UserModel {
     isVerified: json['is_verified'] ?? false,
     avatar: json['avatar'],
     city: json['city'],
-    createdAt: DateTime.parse(json['created_at']),
+    createdAt: DateTime.parse(json['created_at']).toLocal(),
   );
-
-  Map<String, dynamic> toJson() => {
-    'id': id, 'name': name, 'email': email, 'phone': phone,
-    'role': role.name, 'is_verified': isVerified,
-    'avatar': avatar, 'city': city,
-    'created_at': createdAt.toIso8601String(),
-  };
 
   String get initials => initialsOf(name);
 }

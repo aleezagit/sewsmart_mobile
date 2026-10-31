@@ -318,3 +318,43 @@ class EmptyState extends StatelessWidget {
     if (subtitle != null) Text(subtitle!, style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 12), textAlign: TextAlign.center),
   ]));
 }
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+// A short message at the bottom of the screen. Pass the error caught from a
+// service call as [error]: an ApiException's text is written for the user.
+void showMessage(BuildContext context, String message, {bool success = true}) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(message, style: GoogleFonts.poppins()),
+      backgroundColor: success ? AppColors.success : AppColors.error,
+      behavior: SnackBarBehavior.floating,
+    ));
+}
+
+void showError(BuildContext context, Object error) =>
+    showMessage(context, '$error', success: false);
+
+// ── Load Error ────────────────────────────────────────────────────────────────
+// Shown in place of a list or page that could not be loaded.
+class LoadError extends StatelessWidget {
+  final Object error;
+  final VoidCallback onRetry;
+  const LoadError({super.key, required this.error, required this.onRetry});
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.cloud_off_rounded, color: AppColors.textMuted, size: 52),
+      const SizedBox(height: 12),
+      Text('$error', textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 13)),
+      const SizedBox(height: 12),
+      TextButton.icon(
+        onPressed: onRetry,
+        icon: Icon(Icons.refresh_rounded, color: AppColors.primaryLight),
+        label: Text('Try again', style: GoogleFonts.poppins(color: AppColors.primaryLight, fontWeight: FontWeight.w600)),
+      ),
+    ]),
+  ));
+}

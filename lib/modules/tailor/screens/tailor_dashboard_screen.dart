@@ -5,13 +5,11 @@ import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/services/verification_service.dart';
-import '../../../core/data/mock_data.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../../auth/screens/verification_screen.dart';
 import '../services/tailor_service.dart';
 import 'incoming_orders_screen.dart';
 import 'order_detail_screen.dart';
-import 'my_riders_screen.dart';
 import 'tailor_notifications_screen.dart';
 import 'tailor_profile_manage_screen.dart';
 import 'tailor_live_screen.dart';
@@ -26,7 +24,10 @@ class TailorDashboardScreen extends StatefulWidget {
 
 class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
   List<OrderModel> _orders = [];
+  TailorModel? _tailor;
+  TailorEarnings? _earnings;
   bool _loading = true;
+  Object? _loadError;
   // The tailor's verification request, for the banner shown until the admin
   // approves it.
   VerificationRequest? _verification;
@@ -46,14 +47,27 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
   }
 
   Future<void> _loadData() async {
-    final orders = await TailorService().getOrders('T001');
-    final verification = await VerificationService().getMyVerification();
-    if (mounted) {
+    final id = AuthService().currentUser?.id;
+    if (id == null) return;
+    final service = TailorService();
+    try {
+      final results = await Future.wait([
+        service.getOrders(),
+        VerificationService().getMyVerification(),
+        service.getProfile(id),
+        service.getEarnings(id),
+      ]);
+      if (!mounted) return;
       setState(() {
-        _orders = orders;
-        _verification = verification;
+        _orders = results[0] as List<OrderModel>;
+        _verification = results[1] as VerificationRequest?;
+        _tailor = results[2] as TailorModel;
+        _earnings = results[3] as TailorEarnings;
         _loading = false;
+        _loadError = null;
       });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
     }
   }
 
@@ -104,11 +118,7 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
 
   int get _pendingCount => _orders.where((o) => o.status == OrderStatus.pending).length;
   int get _inProgressCount => _orders.where((o) => o.status == OrderStatus.inProgress || o.status == OrderStatus.accepted).length;
-  double get _thisMonthEarnings {
-    return MockData.monthlyEarnings.isNotEmpty
-        ? (MockData.monthlyEarnings.last['amount'] as double)
-        : 0.0;
-  }
+  double get _thisMonthEarnings => _earnings?.thisMonth ?? 0;
 
   Color _statusColor(OrderStatus s) {
     switch (s) {
@@ -124,11 +134,7 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = AuthService().currentUser;
-    final tailor = MockData.tailors.firstWhere(
-      (t) => t.id == 'T001',
-      orElse: () => MockData.tailors.first,
-    );
+    final tailor = _tailor;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -147,8 +153,8 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 16),
-                  _buildHeader(user, tailor),
-                  if (!_loading && user != null && !user.isVerified) _buildVerifyBanner(),
+                  _buildHeader(tailor),
+                  if (tailor != null && !tailor.isVerified) _buildVerifyBanner(),
                   const SizedBox(height: 16),
                   if (!_loading && _pendingCount > 0) _buildPendingBanner(),
                   const SizedBox(height: 20),
@@ -159,6 +165,11 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
                         child: CircularProgressIndicator(color: AppColors.tealLight, strokeWidth: 2),
                       ),
                     )
+                  else if (_loadError != null)
+                    LoadError(error: _loadError!, onRetry: () {
+                      setState(() => _loading = true);
+                      _loadData();
+                    })
                   else ...[
                     _buildMetricGrid(),
                     const SizedBox(height: 24),
@@ -176,7 +187,7 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
     );
   }
 
-  Widget _buildHeader(UserModel? user, dynamic tailor) {
+  Widget _buildHeader(TailorModel? tailor) {
     return Row(
       children: [
         Expanded(
@@ -188,7 +199,7 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
                 style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
               ),
               Text(
-                tailor.name,
+                tailor?.name ?? AuthService().currentUser?.name ?? '',
                 style: GoogleFonts.poppins(
                   color: AppColors.textPrimary,
                   fontSize: 20,
@@ -344,12 +355,6 @@ class _TailorDashboardScreenState extends State<TailorDashboardScreen> {
 
   Widget _buildQuickActions(BuildContext context) {
     final actions = [
-      {
-        'icon': Icons.directions_bike_rounded,
-        'label': 'Riders',
-        'gradient': [AppColors.riderColor, const Color(0xFFF97316)],
-        'onTap': () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyRidersScreen())),
-      },
       {
         'icon': Icons.photo_library_rounded,
         'label': 'Samples',

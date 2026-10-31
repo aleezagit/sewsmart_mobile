@@ -12,7 +12,7 @@ async function nextId(prefix, { start = 1, pad = 3, separator = '' } = {}) {
   return `${prefix}${separator}${String(value).padStart(pad, '0')}`;
 }
 
-const ROLE_PREFIX = { customer: 'C', tailor: 'T', rider: 'R' };
+const ROLE_PREFIX = { customer: 'C', tailor: 'T' };
 
 module.exports = {
   nextId,

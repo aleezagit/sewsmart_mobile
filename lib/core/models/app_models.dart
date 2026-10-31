@@ -40,12 +40,12 @@ enum OrderStatus { pending, accepted, rejected, inProgress, qualityCheck, readyF
 class OrderModel {
   final String id, customerId, tailorId, customerName, tailorName, garmentType;
   final OrderStatus status;
-  final double amount;
+  final double amount, discount;
   final String measurements;
-  final bool hasDesignRef;
+  final bool hasDesignRef, deliveryRequested;
   final DateTime createdAt;
-  final DateTime? scheduledPickup, scheduledDelivery;
-  final String? riderId, riderName;
+  final DateTime? scheduledDelivery;
+  final String? deliverySlot, deliveryAddress, designRefUrl;
   final String? notes;
 
   const OrderModel({
@@ -53,8 +53,8 @@ class OrderModel {
     required this.customerName, required this.tailorName,
     required this.garmentType, required this.status, required this.amount,
     required this.measurements, required this.createdAt,
-    this.hasDesignRef = false, this.scheduledPickup, this.scheduledDelivery,
-    this.riderId, this.riderName, this.notes,
+    this.discount = 0, this.hasDesignRef = false, this.deliveryRequested = false,
+    this.scheduledDelivery, this.deliverySlot, this.deliveryAddress, this.designRefUrl, this.notes,
   });
 
   factory OrderModel.fromJson(Map<String, dynamic> j) => OrderModel(
@@ -63,21 +63,16 @@ class OrderModel {
     garmentType: j['garment_type'],
     status: OrderStatus.values.byName(j['status']),
     amount: (j['amount'] as num).toDouble(),
+    discount: ((j['discount'] ?? 0) as num).toDouble(),
     measurements: j['measurements'] ?? '',
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
     hasDesignRef: j['has_design_ref'] ?? false,
-    riderId: j['rider_id'], riderName: j['rider_name'],
+    deliveryRequested: j['delivery_requested'] ?? false,
+    scheduledDelivery: _date(j['scheduled_delivery']),
+    deliverySlot: j['delivery_slot'],
+    deliveryAddress: j['delivery_address'],
+    designRefUrl: j['design_ref_url'],
     notes: j['notes'],
-  );
-
-  OrderModel copyWith({OrderStatus? status, String? riderId, String? riderName}) => OrderModel(
-    id: id, customerId: customerId, tailorId: tailorId,
-    customerName: customerName, tailorName: tailorName,
-    garmentType: garmentType, status: status ?? this.status, amount: amount,
-    measurements: measurements, createdAt: createdAt, hasDesignRef: hasDesignRef,
-    scheduledPickup: scheduledPickup, scheduledDelivery: scheduledDelivery,
-    riderId: riderId ?? this.riderId, riderName: riderName ?? this.riderName,
-    notes: notes,
   );
 
   String get statusLabel {
@@ -118,10 +113,55 @@ class PaymentModel {
     tailorId: j['tailor_id'], amount: (j['amount'] as num).toDouble(),
     status: PaymentStatus.values.byName(j['status']),
     method: PaymentMethod.values.byName(j['method']),
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
     transactionId: j['transaction_id'],
   );
 }
+
+// ── Earnings ──────────────────────────────────────────────────────────────────
+// month is YYYY-MM.
+class MonthlyEarning {
+  final String month;
+  final double amount;
+  final int orders;
+  const MonthlyEarning({required this.month, required this.amount, required this.orders});
+
+  factory MonthlyEarning.fromJson(Map<String, dynamic> j) => MonthlyEarning(
+    month: j['month'], amount: (j['amount'] as num).toDouble(), orders: j['orders'] ?? 0,
+  );
+
+  // "Oct" for "2026-10".
+  String get shortMonth {
+    const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    final number = int.tryParse(month.split('-').last) ?? 1;
+    return names[(number - 1).clamp(0, 11)];
+  }
+}
+
+// GET /api/tailors/:id/earnings. commissionRate is the platform's percentage.
+class TailorEarnings {
+  final double total, thisMonth, pending, withdrawn, available, commissionRate;
+  final List<MonthlyEarning> monthly;
+
+  const TailorEarnings({
+    required this.total, required this.thisMonth, required this.pending,
+    required this.withdrawn, required this.available, required this.commissionRate,
+    required this.monthly,
+  });
+
+  factory TailorEarnings.fromJson(Map<String, dynamic> j) => TailorEarnings(
+    total: _money(j['total']), thisMonth: _money(j['this_month']),
+    pending: _money(j['pending']), withdrawn: _money(j['withdrawn']),
+    available: _money(j['available']), commissionRate: _money(j['commission_rate']),
+    monthly: ((j['monthly'] ?? []) as List)
+        .map((m) => MonthlyEarning.fromJson(Map<String, dynamic>.from(m as Map)))
+        .toList(),
+  );
+}
+
+double _money(dynamic value) => ((value ?? 0) as num).toDouble();
+// API dates are UTC. The app shows them in the phone's time zone.
+DateTime? _date(dynamic value) => value == null ? null : DateTime.parse(value as String).toLocal();
 
 // ── Message ───────────────────────────────────────────────────────────────────
 enum MessageType { text, image, document }
@@ -142,7 +182,7 @@ class MessageModel {
     id: j['id'], senderId: j['sender_id'], receiverId: j['receiver_id'],
     text: j['text'] ?? '',
     type: MessageType.values.byName(j['type'] ?? 'text'),
-    time: DateTime.parse(j['created_at']),
+    time: DateTime.parse(j['created_at']).toLocal(),
     isRead: j['is_read'] ?? false,
   );
 }
@@ -162,24 +202,12 @@ class NotificationModel {
     id: j['id'], title: j['title'], body: j['body'] ?? '',
     type: j['type'] ?? '',
     isRead: j['is_read'] ?? false,
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
   );
-}
 
-// ── Delivery Schedule ─────────────────────────────────────────────────────────
-class DeliveryScheduleModel {
-  final String id, orderId, customerId, tailorId;
-  final DateTime? preferredPickupDate, preferredDeliveryDate;
-  final String? pickupTimeSlot, deliveryTimeSlot;
-  final String status; // pending_reply, confirmed, rescheduled
-  final String? riderId;
-
-  const DeliveryScheduleModel({
-    required this.id, required this.orderId, required this.customerId,
-    required this.tailorId, required this.status,
-    this.preferredPickupDate, this.preferredDeliveryDate,
-    this.pickupTimeSlot, this.deliveryTimeSlot, this.riderId,
-  });
+  NotificationModel asRead() => NotificationModel(
+    id: id, title: title, body: body, type: type, isRead: true, createdAt: createdAt,
+  );
 }
 
 // ── Review ────────────────────────────────────────────────────────────────────
@@ -200,21 +228,21 @@ class ReviewModel {
     id: j['id'], customerId: j['customer_id'], tailorId: j['tailor_id'],
     customerName: j['customer_name'], comment: j['comment'] ?? '',
     rating: (j['rating'] as num).toDouble(),
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
     orderId: j['order_id'],
   );
 }
 
 // ── Garment Pricing ───────────────────────────────────────────────────────────
-// id is empty in the shared default list and set in a tailor's own price list.
+// One line of a tailor's own price list.
 class GarmentPricing {
   final String id;
   final String garment, estimatedTime;
   final double price;
-  const GarmentPricing({this.id = '', required this.garment, required this.price, required this.estimatedTime});
+  const GarmentPricing({required this.id, required this.garment, required this.price, required this.estimatedTime});
 
   factory GarmentPricing.fromJson(Map<String, dynamic> j) => GarmentPricing(
-    id: j['id'] ?? '', garment: j['garment'],
+    id: j['id'], garment: j['garment'],
     price: (j['price'] as num).toDouble(),
     estimatedTime: j['estimated_time'] ?? '',
   );
@@ -234,7 +262,7 @@ class PortfolioItem {
   factory PortfolioItem.fromJson(Map<String, dynamic> j) => PortfolioItem(
     id: j['id'], tailorId: j['tailor_id'], title: j['title'] ?? '',
     imageUrl: j['image_url'] ?? '', status: j['status'] ?? 'active',
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
   );
 }
 
@@ -276,7 +304,7 @@ class MeasurementModel {
     hips: (j['hips'] as num).toDouble(), shoulder: (j['shoulder'] as num).toDouble(),
     armLength: (j['arm_length'] as num).toDouble(), inseam: (j['inseam'] as num).toDouble(),
     neck: (j['neck'] as num).toDouble(), wrist: (j['wrist'] as num).toDouble(),
-    updatedAt: j['updated_at'] == null ? null : DateTime.parse(j['updated_at']),
+    updatedAt: _date(j['updated_at']),
   );
 
   Map<String, dynamic> toJson() => {
@@ -302,11 +330,6 @@ class SavedPaymentMethod {
     id: j['id'], type: j['type'], detail: j['detail'] ?? '',
     accountName: j['account_name'] ?? '', isDefault: j['is_default'] ?? false,
   );
-
-  SavedPaymentMethod copyWith({bool? isDefault}) => SavedPaymentMethod(
-    id: id, type: type, detail: detail, accountName: accountName,
-    isDefault: isDefault ?? this.isDefault,
-  );
 }
 
 // ── Payout Account ────────────────────────────────────────────────────────────
@@ -327,11 +350,6 @@ class PayoutAccount {
     accountName: j['account_name'] ?? '', bankName: j['bank_name'], iban: j['iban'],
     isDefault: j['is_default'] ?? false,
   );
-
-  PayoutAccount copyWith({bool? isDefault}) => PayoutAccount(
-    id: id, type: type, accountNumber: accountNumber, accountName: accountName,
-    bankName: bankName, iban: iban, isDefault: isDefault ?? this.isDefault,
-  );
 }
 
 // ── Withdrawal ────────────────────────────────────────────────────────────────
@@ -349,8 +367,8 @@ class WithdrawalModel {
 
   factory WithdrawalModel.fromJson(Map<String, dynamic> j) => WithdrawalModel(
     id: j['id'], amount: (j['amount'] as num).toDouble(), status: j['status'],
-    requestedAt: DateTime.parse(j['requested_at']),
-    paidAt: j['paid_at'] == null ? null : DateTime.parse(j['paid_at']),
+    requestedAt: DateTime.parse(j['requested_at']).toLocal(),
+    paidAt: _date(j['paid_at']),
   );
 }
 
@@ -371,7 +389,7 @@ class ConversationModel {
     orderId: j['order_id'], garmentType: j['garment_type'],
     otherUserId: j['other_user_id'], otherUserName: j['other_user_name'],
     lastMessage: j['last_message'] ?? '',
-    lastMessageAt: j['last_message_at'] == null ? null : DateTime.parse(j['last_message_at']),
+    lastMessageAt: _date(j['last_message_at']),
     unreadCount: j['unread_count'] ?? 0,
   );
 }
@@ -404,7 +422,7 @@ class SearchEntry {
 
   factory SearchEntry.fromJson(Map<String, dynamic> j) => SearchEntry(
     query: j['query'], category: j['category'] ?? 'General',
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
   );
 }
 
@@ -421,17 +439,16 @@ class TrendingSearch {
 
 // ── AI Design Studio ──────────────────────────────────────────────────────────
 class DesignConcept {
-  final String id, title, category, color, fabric;
-  final String? imageUrl;
+  final String id, title, description, category, color, fabric;
 
   const DesignConcept({
-    required this.id, required this.title, required this.category,
-    required this.color, required this.fabric, this.imageUrl,
+    required this.id, required this.title, required this.description,
+    required this.category, required this.color, required this.fabric,
   });
 
   factory DesignConcept.fromJson(Map<String, dynamic> j) => DesignConcept(
-    id: j['id'], title: j['title'], category: j['category'],
-    color: j['color'], fabric: j['fabric'], imageUrl: j['image_url'],
+    id: j['id'], title: j['title'], description: j['description'] ?? '',
+    category: j['category'], color: j['color'], fabric: j['fabric'],
   );
 }
 
@@ -450,33 +467,7 @@ class TryOnResult {
   factory TryOnResult.fromJson(Map<String, dynamic> j) => TryOnResult(
     id: j['id'], garmentType: j['garment_type'], resultUrl: j['result_url'] ?? '',
     command: j['command'], isSaved: j['is_saved'] ?? false,
-    createdAt: DateTime.parse(j['created_at']),
-  );
-}
-
-// ── Rider Profile ─────────────────────────────────────────────────────────────
-class RiderProfile {
-  final String id, name, phone, city;
-  final String? assignedTailorId, assignedTailorName;
-  final bool isVerified, isAvailable;
-  final int totalDeliveries, monthDeliveries;
-  final double rating;
-
-  const RiderProfile({
-    required this.id, required this.name, required this.phone, required this.city,
-    required this.isVerified, required this.isAvailable,
-    required this.totalDeliveries, required this.monthDeliveries, required this.rating,
-    this.assignedTailorId, this.assignedTailorName,
-  });
-
-  factory RiderProfile.fromJson(Map<String, dynamic> j) => RiderProfile(
-    id: j['id'], name: j['name'], phone: j['phone'], city: j['city'] ?? '',
-    isVerified: j['is_verified'] ?? false, isAvailable: j['is_available'] ?? true,
-    totalDeliveries: j['total_deliveries'] ?? 0,
-    monthDeliveries: j['month_deliveries'] ?? 0,
-    rating: ((j['rating'] ?? 0) as num).toDouble(),
-    assignedTailorId: j['assigned_tailor_id'],
-    assignedTailorName: j['assigned_tailor_name'],
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
   );
 }
 
@@ -503,7 +494,7 @@ class LiveMessage {
 
   factory LiveMessage.fromJson(Map<String, dynamic> j) => LiveMessage(
     id: j['id'], viewerName: j['viewer_name'], text: j['text'] ?? '',
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
   );
 }
 
@@ -533,7 +524,7 @@ class LiveStream {
     id: j['id'], tailorId: j['tailor_id'], title: j['title'],
     tailorName: j['tailor_name'] ?? '',
     category: j['category'], status: j['status'],
-    startedAt: DateTime.parse(j['started_at']),
+    startedAt: DateTime.parse(j['started_at']).toLocal(),
     giftsEnabled: j['gifts_enabled'] ?? true,
     viewers: j['viewers'] ?? 0, peakViewers: j['peak_viewers'] ?? 0,
     likes: j['likes'] ?? 0, durationSeconds: j['duration_seconds'] ?? 0,
@@ -542,23 +533,6 @@ class LiveStream {
     gifts: ((j['gifts'] ?? []) as List)
         .map((g) => LiveGift.fromJson(Map<String, dynamic>.from(g as Map)))
         .toList(),
-  );
-
-  LiveStream copyWith({
-    String? status, int? viewers, int? peakViewers, int? likes,
-    int? durationSeconds, double? earnings, String? pinnedGarmentId,
-    List<LiveGift>? gifts,
-  }) => LiveStream(
-    id: id, tailorId: tailorId, title: title, category: category,
-    tailorName: tailorName,
-    status: status ?? this.status, startedAt: startedAt,
-    giftsEnabled: giftsEnabled,
-    viewers: viewers ?? this.viewers, peakViewers: peakViewers ?? this.peakViewers,
-    likes: likes ?? this.likes,
-    durationSeconds: durationSeconds ?? this.durationSeconds,
-    earnings: earnings ?? this.earnings,
-    pinnedGarmentId: pinnedGarmentId ?? this.pinnedGarmentId,
-    gifts: gifts ?? this.gifts,
   );
 }
 
@@ -580,11 +554,6 @@ class AddressModel {
     id: j['id'], label: j['label'] ?? 'other', street: j['street'] ?? '',
     area: j['area'] ?? '', city: j['city'] ?? '', phone: j['phone'] ?? '',
     landmark: j['landmark'], isDefault: j['is_default'] ?? false,
-  );
-
-  AddressModel copyWith({bool? isDefault}) => AddressModel(
-    id: id, label: label, street: street, area: area, city: city,
-    phone: phone, landmark: landmark, isDefault: isDefault ?? this.isDefault,
   );
 
   // One line for lists: "House 12, Street 5, Gulberg III, Lahore".
@@ -612,15 +581,15 @@ class DisputeModel {
     id: j['id'], orderId: j['order_id'], reason: j['reason'] ?? '',
     details: j['details'] ?? '', status: j['status'] ?? 'open',
     resolution: j['resolution'], resolutionNotes: j['resolution_notes'],
-    createdAt: DateTime.parse(j['created_at']),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
   );
 
   bool get isOpen => status == 'open';
 }
 
 // ── Verification ──────────────────────────────────────────────────────────────
-// A document a tailor or rider sends to be verified. type is cnicFront,
-// cnicBack, businessProof (tailor) or drivingLicence (rider).
+// A document a tailor sends to be verified. type is cnicFront, cnicBack or
+// businessProof.
 class VerificationDocument {
   final String type, url;
   const VerificationDocument({required this.type, this.url = ''});
@@ -650,7 +619,7 @@ class VerificationRequest {
     documents: ((j['documents'] ?? []) as List)
         .map((d) => VerificationDocument.fromJson(Map<String, dynamic>.from(d as Map)))
         .toList(),
-    submittedAt: DateTime.parse(j['submitted_at']),
+    submittedAt: DateTime.parse(j['submitted_at']).toLocal(),
     rejectionReason: j['rejection_reason'], adminMessage: j['admin_message'],
   );
 

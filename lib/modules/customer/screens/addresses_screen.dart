@@ -7,7 +7,7 @@ import '../../../core/services/auth_service.dart';
 import '../../../core/utils/validators.dart';
 import '../services/customer_service.dart';
 
-// The customer's delivery addresses. One of them is the default, and riders
+// The customer's delivery addresses. One of them is the default, and tailors
 // deliver there. Addresses can be added, edited, made default and removed.
 class AddressesScreen extends StatefulWidget {
   const AddressesScreen({super.key});
@@ -19,6 +19,7 @@ class AddressesScreen extends StatefulWidget {
 class _AddressesScreenState extends State<AddressesScreen> {
   List<AddressModel> _addresses = [];
   bool _loading = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -27,9 +28,16 @@ class _AddressesScreenState extends State<AddressesScreen> {
   }
 
   Future<void> _load() async {
-    final addresses = await CustomerService().getAddresses();
+    final List<AddressModel> addresses;
+    try {
+      addresses = await CustomerService().getAddresses();
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+      return;
+    }
     if (!mounted) return;
     setState(() {
+      _loadError = null;
       // The default address first, the others in the order they were added.
       _addresses = [
         ...addresses.where((a) => a.isDefault),
@@ -37,16 +45,6 @@ class _AddressesScreenState extends State<AddressesScreen> {
       ];
       _loading = false;
     });
-  }
-
-  void _showMessage(String text, Color color) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(text, style: GoogleFonts.poppins()),
-        backgroundColor: color,
-        duration: const Duration(seconds: 2),
-      ));
   }
 
   Future<void> _openForm({AddressModel? address}) async {
@@ -62,22 +60,22 @@ class _AddressesScreenState extends State<AddressesScreen> {
     if (saved == null || !mounted) return;
     await _load();
     if (!mounted) return;
-    _showMessage(address == null ? 'Address added' : 'Address updated', AppColors.success);
+    showMessage(context, address == null ? 'Address added' : 'Address updated');
   }
 
   Future<void> _setDefault(AddressModel address) async {
-    final ok = await CustomerService().setDefaultAddress(address.id);
-    if (ok) await _load();
-    if (!mounted) return;
-    _showMessage(
-      ok ? '${_labelText(address.label)} is now your default address' : 'Could not change the default address',
-      ok ? AppColors.success : AppColors.error,
-    );
+    try {
+      await CustomerService().setDefaultAddress(address.id);
+      await _load();
+      if (mounted) showMessage(context, '${_labelText(address.label)} is now your default address');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   void _confirmRemove(AddressModel address) {
     if (address.isDefault && _addresses.length > 1) {
-      _showMessage('Make another address the default before removing this one', AppColors.warning);
+      showMessage(context, 'Make another address the default before removing this one', success: false);
       return;
     }
     showDialog(
@@ -114,10 +112,13 @@ class _AddressesScreenState extends State<AddressesScreen> {
   }
 
   Future<void> _remove(AddressModel address) async {
-    final ok = await CustomerService().removeAddress(address.id);
-    if (ok) await _load();
-    if (!mounted) return;
-    _showMessage(ok ? 'Address removed' : 'Could not remove the address', AppColors.error);
+    try {
+      await CustomerService().removeAddress(address.id);
+      await _load();
+      if (mounted) showMessage(context, 'Address removed');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   @override
@@ -134,6 +135,11 @@ class _AddressesScreenState extends State<AddressesScreen> {
                     ? Center(
                         child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2),
                       )
+                    : _loadError != null
+                    ? LoadError(error: _loadError!, onRetry: () {
+                        setState(() => _loading = true);
+                        _load();
+                      })
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(20, 8, 20, 30),
                         children: [
@@ -143,7 +149,7 @@ class _AddressesScreenState extends State<AddressesScreen> {
                               child: EmptyState(
                                 icon: Icons.location_off_outlined,
                                 title: 'No addresses yet',
-                                subtitle: 'Add the address where riders should deliver your orders',
+                                subtitle: 'Add the address where tailors should deliver your orders',
                               ),
                             ),
                           ..._addresses.map((address) => _AddressCard(
@@ -161,7 +167,7 @@ class _AddressesScreenState extends State<AddressesScreen> {
                               const SizedBox(width: 6),
                               Expanded(
                                 child: Text(
-                                  'Riders deliver your orders to the default address.',
+                                  'Tailors deliver your orders to the default address.',
                                   style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11),
                                 ),
                               ),
@@ -346,35 +352,33 @@ class _AddressFormState extends State<_AddressForm> {
       _error = null;
     });
     final existing = widget.address;
-    final AddressModel? saved;
-    if (existing == null) {
-      saved = await CustomerService().addAddress(
-        label: _label,
-        street: _streetCtrl.text,
-        area: _areaCtrl.text,
-        city: _cityCtrl.text,
-        phone: _phoneCtrl.text,
-        landmark: _landmarkCtrl.text,
-      );
-    } else {
-      saved = await CustomerService().updateAddress(
-        id: existing.id,
-        label: _label,
-        street: _streetCtrl.text,
-        area: _areaCtrl.text,
-        city: _cityCtrl.text,
-        phone: _phoneCtrl.text,
-        landmark: _landmarkCtrl.text,
-      );
-    }
-    if (!mounted) return;
-    if (saved == null) {
-      setState(() {
-        _saving = false;
-        _error = 'Could not save the address. Try again.';
-      });
+    final AddressModel saved;
+    try {
+      if (existing == null) {
+        saved = await CustomerService().addAddress(
+          label: _label,
+          street: _streetCtrl.text,
+          area: _areaCtrl.text,
+          city: _cityCtrl.text,
+          phone: _phoneCtrl.text,
+          landmark: _landmarkCtrl.text,
+        );
+      } else {
+        saved = await CustomerService().updateAddress(
+          id: existing.id,
+          label: _label,
+          street: _streetCtrl.text,
+          area: _areaCtrl.text,
+          city: _cityCtrl.text,
+          phone: _phoneCtrl.text,
+          landmark: _landmarkCtrl.text,
+        );
+      }
+    } catch (e) {
+      if (mounted) setState(() { _saving = false; _error = '$e'; });
       return;
     }
+    if (!mounted) return;
     Navigator.pop(context, saved);
   }
 
@@ -432,7 +436,7 @@ class _AddressFormState extends State<_AddressForm> {
             const SizedBox(height: 12),
             AppTextField(
               ctrl: _phoneCtrl,
-              hint: 'Phone number for the rider',
+              hint: 'Phone number for delivery',
               label: 'Phone',
               icon: Icons.phone_outlined,
               keyboard: TextInputType.phone,
@@ -440,7 +444,7 @@ class _AddressFormState extends State<_AddressForm> {
             const SizedBox(height: 12),
             AppTextField(
               ctrl: _landmarkCtrl,
-              hint: 'A place the rider can find easily',
+              hint: 'A place that is easy to find',
               label: 'Landmark (optional)',
               icon: Icons.place_outlined,
             ),

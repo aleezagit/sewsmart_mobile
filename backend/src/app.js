@@ -22,15 +22,13 @@ function createApp() {
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/admin', require('./routes/admin'));
 
-  // Everything below needs a signed-in customer, tailor or rider.
+  // Everything below needs a signed-in customer or tailor.
   app.use('/api', requireUser);
   app.use('/api/users', require('./routes/users'));
   app.use('/api/tailors', require('./routes/tailors'));
   app.use('/api/orders', require('./routes/orders'));
   app.use('/api/payments', requireRole('customer'), require('./routes/payments'));
   app.use('/api/reviews', requireRole('customer'), require('./routes/reviews'));
-  app.use('/api/riders', require('./routes/riders'));
-  app.use('/api/deliveries', requireRole('rider'), require('./routes/deliveries'));
   app.use('/api/notifications', require('./routes/notifications'));
   app.use('/api/streams', require('./routes/streams'));
   app.use('/api/verifications', require('./routes/verifications'));

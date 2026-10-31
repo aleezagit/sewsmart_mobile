@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/utils/app_refresh.dart';
+import '../../../core/utils/image_picking.dart';
 import '../../../core/utils/validators.dart';
 import '../services/customer_service.dart';
 import 'payment_screen.dart';
@@ -23,9 +23,11 @@ class PlaceOrderScreen extends StatefulWidget {
 
 class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   int _currentStep = 1;
-  late GarmentPricing? _selectedGarment =
-      _garments.where((g) => g.garment == widget.initialGarment).firstOrNull;
-  final List<GarmentPricing> _garments = MockData.garments;
+  GarmentPricing? _selectedGarment;
+  // The tailor's own price list.
+  List<GarmentPricing> _garments = [];
+  bool _loadingGarments = true;
+  Object? _garmentsError;
 
   // Step 2 – measurements
   final _chestCtrl = TextEditingController();
@@ -34,20 +36,47 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
   final _lengthCtrl = TextEditingController();
   final _shoulderCtrl = TextEditingController();
   final _notesCtrl = TextEditingController();
-  bool _hasDesignRef = false;
+  // A picture of the design, sent once the order is placed.
+  XFile? _designRef;
 
   // Step 3 – summary
   final _couponCtrl = TextEditingController();
-  bool _couponApplied = false;
+  // The coupon the server accepted. The server works out the discount again
+  // when the order is placed.
+  CouponResult? _coupon;
+  bool _checkingCoupon = false;
+
+  bool get _couponApplied => _coupon != null;
   // Kept as a share of the price, so the discount follows the garment when the
   // customer goes back and picks another one after applying the coupon.
-  double _discountRate = 0;
+  double get _discountRate => (_coupon?.discountPercent ?? 0) / 100;
 
   bool _loading = false;
   String? _errorMsg;
 
   double get _discount => (_selectedGarment?.price ?? 0) * _discountRate;
   double get _total => (_selectedGarment?.price ?? 0) - _discount;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadGarments();
+  }
+
+  Future<void> _loadGarments() async {
+    setState(() { _loadingGarments = true; _garmentsError = null; });
+    try {
+      final garments = await CustomerService().getTailorGarments(widget.tailor.id);
+      if (!mounted) return;
+      setState(() {
+        _garments = garments;
+        _selectedGarment ??= garments.where((g) => g.garment == widget.initialGarment).firstOrNull;
+        _loadingGarments = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loadingGarments = false; _garmentsError = e; });
+    }
+  }
 
   @override
   void dispose() {
@@ -83,46 +112,67 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
     }
   }
 
-  void _applyCoupon() {
-    final code = _couponCtrl.text.trim().toUpperCase();
-    if (code == 'EID20') {
-      setState(() { _couponApplied = true; _discountRate = 0.2; });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('20% discount applied!', style: GoogleFonts.poppins(fontSize: 12)), backgroundColor: AppColors.success),
+  Future<void> _applyCoupon() async {
+    final code = _couponCtrl.text.trim();
+    if (code.isEmpty || _checkingCoupon) return;
+    setState(() => _checkingCoupon = true);
+    try {
+      final result = await CustomerService().validateCoupon(
+        code: code, amount: _selectedGarment?.price ?? 0, tailorId: widget.tailor.id,
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Invalid coupon code', style: GoogleFonts.poppins(fontSize: 12)), backgroundColor: AppColors.error),
-      );
+      if (!mounted) return;
+      setState(() => _coupon = result.valid ? result : null);
+      showMessage(context, result.message, success: result.valid);
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
+    if (mounted) setState(() => _checkingCoupon = false);
+  }
+
+  Future<void> _pickDesignRef() async {
+    if (_designRef != null) {
+      setState(() => _designRef = null);
+      return;
+    }
+    final image = await pickImage(context, title: 'Design reference');
+    if (image != null && mounted) setState(() => _designRef = image);
   }
 
   Future<void> _proceedToPayment() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
     setState(() { _loading = true; _errorMsg = null; });
-    final order = await CustomerService().placeOrder(
-      customerId: user.id,
-      tailorId: widget.tailor.id,
-      garmentType: _selectedGarment!.garment,
-      amount: _total,
-      measurements: 'C:${_chestCtrl.text.trim()} W:${_waistCtrl.text.trim()} H:${_hipCtrl.text.trim()} '
-          'L:${_lengthCtrl.text.trim()} S:${_shoulderCtrl.text.trim()}',
-      hasDesignRef: _hasDesignRef,
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
-    );
+    final service = CustomerService();
+    OrderModel order;
+    try {
+      order = await service.placeOrder(
+        tailorId: widget.tailor.id,
+        garmentType: _selectedGarment!.garment,
+        measurements: 'Chest ${_chestCtrl.text.trim()}, Waist ${_waistCtrl.text.trim()}, '
+            'Hips ${_hipCtrl.text.trim()}, Length ${_lengthCtrl.text.trim()}, '
+            'Shoulder ${_shoulderCtrl.text.trim()} (in)',
+        notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+        couponCode: _coupon?.code,
+      );
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _errorMsg = '$e'; });
+      return;
+    }
+    // The new order shows on the Orders tab and in the chat list.
+    AppRefresh.ordersChanged();
+    final designRef = _designRef;
+    if (designRef != null) {
+      try {
+        order = await service.uploadDesignReference(order.id, designRef);
+      } catch (e) {
+        // The order stands without the picture, so say so and carry on.
+        if (mounted) showMessage(context, 'Order placed, but the design picture was not sent: $e', success: false);
+      }
+    }
     if (!mounted) return;
     setState(() => _loading = false);
-    if (order != null) {
-      // The new order shows on the Orders tab and in the chat list.
-      AppRefresh.ordersChanged();
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => PaymentScreen(amount: _total, orderId: order.id, tailorId: widget.tailor.id)),
-      );
-    } else {
-      setState(() => _errorMsg = 'Failed to place order. Try again.');
-    }
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => PaymentScreen(amount: order.amount, orderId: order.id)),
+    );
   }
 
   @override
@@ -226,6 +276,12 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         const SizedBox(height: 4),
         Text('Choose the garment type to stitch', style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12)),
         const SizedBox(height: 16),
+        if (_loadingGarments)
+          Center(child: Padding(padding: const EdgeInsets.all(30), child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2)))
+        else if (_garmentsError != null)
+          LoadError(error: _garmentsError!, onRetry: _loadGarments)
+        else if (_garments.isEmpty)
+          const EmptyState(icon: Icons.checkroom_outlined, title: 'This tailor has no prices listed yet'),
         ..._garments.map((g) {
           final selected = _selectedGarment?.garment == g.garment;
           return GestureDetector(
@@ -311,19 +367,19 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         AppTextField(ctrl: _notesCtrl, hint: 'Fabric notes (optional)', icon: Icons.notes_rounded, maxLines: 3),
         const SizedBox(height: 16),
         GestureDetector(
-          onTap: () => setState(() => _hasDesignRef = !_hasDesignRef),
+          onTap: _pickDesignRef,
           child: Container(
             padding: const EdgeInsets.all(14),
             decoration: BoxDecoration(
-              color: _hasDesignRef ? AppColors.primary.withValues(alpha: 0.1) : AppColors.card,
+              color: _designRef != null ? AppColors.primary.withValues(alpha: 0.1) : AppColors.card,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: _hasDesignRef ? AppColors.primary : AppColors.divider),
+              border: Border.all(color: _designRef != null ? AppColors.primary : AppColors.divider),
             ),
             child: Row(
               children: [
                 Icon(
-                  _hasDesignRef ? Icons.add_photo_alternate_rounded : Icons.add_photo_alternate_outlined,
-                  color: _hasDesignRef ? AppColors.primaryLight : AppColors.textMuted,
+                  _designRef != null ? Icons.add_photo_alternate_rounded : Icons.add_photo_alternate_outlined,
+                  color: _designRef != null ? AppColors.primaryLight : AppColors.textMuted,
                   size: 22,
                 ),
                 const SizedBox(width: 12),
@@ -332,11 +388,13 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text('Upload Design Reference', style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w500, fontSize: 13)),
-                      Text('Image or sketch of your design (optional)', style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
+                      Text(_designRef != null ? '${_designRef!.name} · tap to remove' : 'Image or sketch of your design (optional)',
+                          maxLines: 1, overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
                     ],
                   ),
                 ),
-                if (_hasDesignRef) Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 20),
+                if (_designRef != null) Icon(Icons.check_circle_rounded, color: AppColors.primary, size: 20),
               ],
             ),
           ),
@@ -371,7 +429,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
               _summaryRow('Length', '${_lengthCtrl.text}"'),
               _summaryRow('Shoulder', '${_shoulderCtrl.text}"'),
               if (_notesCtrl.text.isNotEmpty) _summaryRow('Notes', _notesCtrl.text),
-              if (_hasDesignRef) _summaryRow('Design Ref', 'Uploaded'),
+              if (_designRef != null) _summaryRow('Design Ref', 'Attached'),
               Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Divider(color: AppColors.divider)),
               _summaryRow('Subtotal', 'Rs ${_selectedGarment!.price.toInt()}'),
               if (_couponApplied) _summaryRow('Discount', '- Rs ${_discount.toInt()}', color: AppColors.success),
@@ -392,7 +450,7 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
         Row(
           children: [
             Expanded(
-              child: AppTextField(ctrl: _couponCtrl, hint: 'Coupon code (try EID20)', icon: Icons.local_offer_outlined),
+              child: AppTextField(ctrl: _couponCtrl, hint: 'Coupon code', icon: Icons.local_offer_outlined),
             ),
             const SizedBox(width: 10),
             GestureDetector(
@@ -404,7 +462,11 @@ class _PlaceOrderScreenState extends State<PlaceOrderScreen> {
                   gradient: LinearGradient(colors: [AppColors.primary, AppColors.primaryLight]),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Center(child: Text('Apply', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13))),
+                child: Center(
+                  child: _checkingCoupon
+                      ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                      : Text('Apply', style: GoogleFonts.poppins(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13)),
+                ),
               ),
             ),
           ],

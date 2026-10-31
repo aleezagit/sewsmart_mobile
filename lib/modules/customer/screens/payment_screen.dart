@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../../../core/utils/validators.dart';
 import '../../../navigation/app_router.dart';
@@ -12,8 +11,7 @@ import '../services/customer_service.dart';
 class PaymentScreen extends StatefulWidget {
   final double amount;
   final String orderId;
-  final String tailorId;
-  const PaymentScreen({super.key, required this.amount, required this.orderId, required this.tailorId});
+  const PaymentScreen({super.key, required this.amount, required this.orderId});
 
   @override
   State<PaymentScreen> createState() => _PaymentScreenState();
@@ -21,6 +19,8 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> with SingleTickerProviderStateMixin {
   PaymentMethod _selectedMethod = PaymentMethod.jazzCash;
+  // Loaded the first time Bank Transfer is picked.
+  Future<Map<String, String>>? _bankAccount;
   final _mobileCtrl = TextEditingController();
   final _accountCtrl = TextEditingController();
   final _otpCtrl = TextEditingController();
@@ -94,34 +94,24 @@ class _PaymentScreenState extends State<PaymentScreen> with SingleTickerProvider
   }
 
   Future<void> _pay() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
     final problem = _checkFields();
     if (problem != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(problem, style: GoogleFonts.poppins()), backgroundColor: AppColors.error),
-      );
+      showMessage(context, problem, success: false);
       return;
     }
     // Clear an earlier "fix this field" message once the details are fine.
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     setState(() { _loading = true; });
-    final payment = await CustomerService().makePayment(
-      orderId: widget.orderId,
-      customerId: user.id,
-      tailorId: widget.tailorId,
-      amount: widget.amount,
-      method: _selectedMethod,
-    );
-    if (!mounted) return;
-    setState(() { _loading = false; _success = payment != null; _paymentResult = payment; });
-    if (_success) {
+    try {
+      final payment = await CustomerService().makePayment(orderId: widget.orderId, method: _selectedMethod);
+      if (!mounted) return;
+      setState(() { _loading = false; _success = true; _paymentResult = payment; });
       AppRefresh.ordersChanged();
       _successCtrl.forward();
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Payment failed. Please try again.', style: GoogleFonts.poppins()), backgroundColor: AppColors.error),
-      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _loading = false);
+      showError(context, e);
     }
   }
 
@@ -236,7 +226,10 @@ class _PaymentScreenState extends State<PaymentScreen> with SingleTickerProvider
         final selected = _selectedMethod == method;
         final color = m['color'] as Color;
         return GestureDetector(
-          onTap: () => setState(() => _selectedMethod = method),
+          onTap: () => setState(() {
+            _selectedMethod = method;
+            if (method == PaymentMethod.bank) _bankAccount ??= CustomerService().getBankAccount();
+          }),
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 200),
             padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -291,13 +284,25 @@ class _PaymentScreenState extends State<PaymentScreen> with SingleTickerProvider
             GlassCard(
               padding: const EdgeInsets.all(14),
               borderColor: AppColors.info.withValues(alpha: 0.3),
-              child: Column(
-                children: [
-                  _bankRow('Bank', 'HBL Pakistan'),
-                  _bankRow('Account Title', 'SewSmart Pvt Ltd'),
-                  _bankRow('Account #', '1234-5678-9012-3456'),
-                  _bankRow('IBAN', 'PK36HABB0000123456789012'),
-                ],
+              child: FutureBuilder<Map<String, String>>(
+                future: _bankAccount,
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Text('${snapshot.error}', style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12));
+                  }
+                  final bank = snapshot.data;
+                  if (bank == null) {
+                    return Center(child: CircularProgressIndicator(color: AppColors.info, strokeWidth: 2));
+                  }
+                  return Column(
+                    children: [
+                      _bankRow('Bank', bank['bank_name'] ?? ''),
+                      _bankRow('Account Title', bank['account_title'] ?? ''),
+                      _bankRow('Account #', bank['account_number'] ?? ''),
+                      if ((bank['iban'] ?? '').isNotEmpty) _bankRow('IBAN', bank['iban']!),
+                    ],
+                  );
+                },
               ),
             ),
             const SizedBox(height: 12),

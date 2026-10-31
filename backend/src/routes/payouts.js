@@ -7,9 +7,9 @@ const { badRequest, notFound, conflict } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
 const { availableBalance } = require('../services/earnings');
 
-// Payout accounts and withdrawals for tailors and riders (docs/API.md, 3.12).
+// Payout accounts and withdrawals for tailors (docs/API.md, 3.12).
 const router = express.Router();
-const earners = requireRole('tailor', 'rider');
+const earners = requireRole('tailor');
 const MINIMUM_WITHDRAWAL = 500;
 
 router.get('/payout-accounts', earners, async (req, res) => {

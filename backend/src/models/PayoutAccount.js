@@ -2,7 +2,7 @@ const { createSchema, mongoose } = require('./base');
 
 const TYPES = ['jazzCash', 'easyPaisa', 'bank'];
 
-// Where a tailor's or rider's withdrawals are paid.
+// Where a tailor's withdrawals are paid.
 const payoutAccountSchema = createSchema({
   user_id: { type: String, required: true, index: true },
   type: { type: String, enum: TYPES, required: true },

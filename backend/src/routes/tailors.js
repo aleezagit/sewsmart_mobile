@@ -8,7 +8,7 @@ const { nextId } = require('../utils/ids');
 const { notFound, conflict, badRequest } = require('../utils/errors');
 const { requireRole, requireSelf } = require('../middleware/auth');
 const { imageUpload, fileUrl } = require('../middleware/upload');
-const { tailorViews, tailorView, riderViews } = require('../services/views');
+const { tailorViews, tailorView } = require('../services/views');
 const { tailorEarnings } = require('../services/earnings');
 
 const router = express.Router();
@@ -131,7 +131,7 @@ router.delete('/:id/garments/:garmentId', ownerOnly, async (req, res) => {
   res.status(204).end();
 });
 
-// ── Reviews, earnings and riders ───────────────────────────────────────────
+// ── Reviews and earnings ───────────────────────────────────────────────────
 router.get('/:id/reviews', async (req, res) => {
   await findTailor(req.params.id);
   res.json(await Review.find({ tailor_id: req.params.id }).sort({ created_at: -1 }));
@@ -139,11 +139,6 @@ router.get('/:id/reviews', async (req, res) => {
 
 router.get('/:id/earnings', ownerOnly, async (req, res) => {
   res.json(await tailorEarnings(req.user.id));
-});
-
-router.get('/:id/riders', ownerOnly, async (req, res) => {
-  const riders = await User.find({ role: 'rider', 'rider.tailor_id': req.user.id, deleted_at: null }).sort({ created_at: 1 });
-  res.json(await riderViews(riders));
 });
 
 module.exports = router;

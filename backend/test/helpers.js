@@ -45,7 +45,6 @@ async function signUp(api, role, fields = {}) {
     is_verified: true,
     password_hash: await bcrypt.hash(PASSWORD, 4),
     ...(role === 'tailor' ? { tailor: { business_name: `${id} Studio`, category: 'Bridal' } } : {}),
-    ...(role === 'rider' ? { rider: {} } : {}),
     ...fields,
   });
   const res = await api.post('/api/auth/login').send({ email: user.email, password: PASSWORD }).expect(200);

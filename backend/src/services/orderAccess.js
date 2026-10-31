@@ -2,12 +2,11 @@ const Order = require('../models/Order');
 const Payment = require('../models/Payment');
 const { notFound, forbidden } = require('../utils/errors');
 
-// Loads an order that the signed-in user takes part in: its customer, its
-// tailor or its assigned rider.
-async function findOrderFor(user, id, roles = ['customer', 'tailor', 'rider']) {
+// Loads an order that the signed-in user takes part in: its customer or its tailor.
+async function findOrderFor(user, id, roles = ['customer', 'tailor']) {
   const order = await Order.findById(id);
   if (!order) throw notFound('Order not found');
-  const part = { customer: order.customer_id, tailor: order.tailor_id, rider: order.rider_id };
+  const part = { customer: order.customer_id, tailor: order.tailor_id };
   if (!roles.some((role) => user.role === role && part[role] === user.id)) throw forbidden('This is not your order');
   return order;
 }
