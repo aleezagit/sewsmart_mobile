@@ -528,24 +528,24 @@ Returns `204`. The tailor gets a notification with the design. The studio opens 
 
 ### 3.11 Virtual try-on
 
-The app talks only to the Node API, which passes the request to the Flask service.
+The app talks only to the Node API, which passes the request to the Flask service. The service asks a hosted try-on model (IDM-VTON on Replicate) to dress the customer's photo in the garment photo (decision 11).
 
 **`POST /api/ai/try-on`**
 
-Multipart form data with `photo` as the file, `garment_type`, and an optional `command` such as "Make it red". The call can take several seconds, and the app shows a processing state while it waits. Returns `201`.
+Multipart form data with two image files, `photo` (the customer, full body) and `garment` (the dress), plus `garment_type` and an optional `command` that describes the garment, such as "Long red silk lehenga with gold embroidery". The call takes 20 to 60 seconds, and the app shows a processing state while it waits. Returns `201`.
 
 ```json
 {
   "id": "TRY1001",
   "garment_type": "Bridal Lehenga",
-  "command": "Make it red",
-  "result_url": "https://example.com/uploads/try-on/try1001.png",
+  "command": "Long red silk lehenga with gold embroidery",
+  "result_url": "https://example.com/uploads/try-on/try1001-result.png",
   "is_saved": false,
   "created_at": "2026-10-07T04:55:00.000Z"
 }
 ```
 
-`400` when the photo is missing or cannot be read.
+`400` when a photo is missing or cannot be read. `502` when the model cannot make an image from the photos, and the message says what to try. `503` when the try-on service or its Replicate token is not set up. `504` when the model takes more than about two and a half minutes.
 
 **`PUT /api/ai/try-on/:id/save`**
 
@@ -1581,7 +1581,7 @@ Each item states what this draft assumes. Change the draft if the team decides o
 8. **Cash on delivery.** The payment methods screen lets a customer save Cash on Delivery, but the payment screen and the `PaymentMethod` enum do not offer it. This draft allows `cashOnDelivery` as a saved method only, so an order cannot be paid that way yet.
 9. **Price lists.** `GET /api/garments/pricing` is one shared list, while each tailor edits their own list. This draft treats the tailor's own list as the real one, so the place order and tailor profile screens should load `GET /api/tailors/:id/garments`.
 10. **Recommended designs.** The recommendations come from a catalogue of designs with a name, a category and a price range. Whether that catalogue is seeded by the team or built from the tailors' portfolio samples is open.
-11. **Try-on result.** The screen shows a 3D viewer with rotate buttons. This draft returns one image, in one request that waits for the result.
+11. **Try-on result.** The model returns one image, in one request that waits for the result. A true 3D view, for example a Blender turntable, is not built.
 12. **Live video.** The stream endpoints carry the title, the numbers and the chat. The video needs a streaming service, and the response to `POST /api/streams` will have to carry that service's channel and token once one is chosen.
 13. **Password length.** The register screen accepts 4 characters, and this draft asks for 8 on the admin password. One rule for both would be simpler.
 14. **One review per order.** A customer reviews each delivered or completed order once, and cannot edit it afterwards.

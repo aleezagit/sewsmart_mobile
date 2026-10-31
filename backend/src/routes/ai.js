@@ -86,19 +86,24 @@ router.post('/ai/designs/:id/send', customerOnly, async (req, res) => {
 });
 
 // ── Virtual try-on ─────────────────────────────────────────────────────────
-const tryOnUpload = imageUpload('try-on');
+const tryOnUpload = imageUpload('try-on').fields([{ name: 'photo', maxCount: 1 }, { name: 'garment', maxCount: 1 }]);
 
-router.post('/ai/try-on', customerOnly, tryOnUpload.single('photo'), async (req, res) => {
-  if (!req.file) throw badRequest('Upload a full-body photo');
+// The customer's full-body photo and a photo of the garment, as `photo` and `garment`.
+router.post('/ai/try-on', customerOnly, tryOnUpload, async (req, res) => {
+  const photo = req.files?.photo?.[0];
+  const garment = req.files?.garment?.[0];
+  if (!photo) throw badRequest('Upload a full-body photo');
+  if (!garment) throw badRequest('Upload a photo of the garment');
   const garmentType = v.text(req.body.garment_type, 'Garment type', { max: 60 });
   const command = v.text(req.body.command, 'Command', { required: false, max: 200 }) || null;
-  const output = await renderTryOn(req.file.path, garmentType, command, path.dirname(req.file.path));
+  const output = await renderTryOn(photo.path, garment.path, garmentType, command, path.dirname(photo.path));
   const result = await TryOn.create({
     _id: await nextId('TRY', { start: 1001 }),
     customer_id: req.user.id,
     garment_type: garmentType,
     command,
-    photo_url: fileUrl(req.file),
+    photo_url: fileUrl(photo),
+    garment_url: fileUrl(garment),
     result_url: fileUrl({ path: output }),
   });
   res.status(201).json(result);

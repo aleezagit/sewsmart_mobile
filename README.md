@@ -45,7 +45,15 @@ flutter run -d chrome                                    # uses http://localhost
 flutter run -d chrome --dart-define=API_URL=https://api.example.com
 ```
 
-**4. The virtual try-on (optional)** – see `tryon-service/`. Without it, the try-on screen reports that the service is not available.
+**4. The virtual try-on (optional)** – the customer adds a photo of themselves and a photo of a dress, and a hosted AI model (IDM-VTON on [Replicate](https://replicate.com)) shows them wearing it. Create an API token at replicate.com/account/api-tokens, then:
+
+```bash
+cd tryon-service
+pip install -r requirements.txt
+REPLICATE_API_TOKEN=r8_your_token python app.py       # http://localhost:5000
+```
+
+Set `TRYON_SERVICE_URL=http://localhost:5000` in `backend/.env`. Each try-on is billed by Replicate and takes about 20 to 60 seconds. Without the service or the token, the try-on screen says it is not available. `REPLICATE_MODEL` can name another model with the same inputs.
 
 ## Tests
 

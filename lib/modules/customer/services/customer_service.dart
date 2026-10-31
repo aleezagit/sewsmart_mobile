@@ -208,12 +208,15 @@ class CustomerService {
       _api.post('/ai/designs/$designId/send', {'tailor_id': tailorId});
 
   // ── Virtual try-on ──────────────────────────────────────────────────────────
-  // POST /api/ai/try-on, as multipart form data. Waits for the rendered image.
-  Future<TryOnResult> generateTryOn({required XFile photo, required String garmentType, String? command}) async =>
+  // POST /api/ai/try-on, as multipart form data: the customer's photo and the
+  // garment's photo. Waits for the rendered image, which takes up to a minute.
+  Future<TryOnResult> generateTryOn({
+    required XFile photo, required XFile garment, required String garmentType, String? command,
+  }) async =>
       TryOnResult.fromJson(objectOf(await _api.upload('/ai/try-on', fields: {
         'garment_type': garmentType,
         if (command != null && command.trim().isNotEmpty) 'command': command.trim(),
-      }, files: {'photo': photo})));
+      }, files: {'photo': photo, 'garment': garment})));
 
   // PUT /api/ai/try-on/:id/save
   Future<TryOnResult> saveTryOn(String id) async =>

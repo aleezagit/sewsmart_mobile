@@ -77,9 +77,55 @@ test('the AI design studio sends a concept to a tailor', async () => {
 
 test('try-on answers 503 while the try-on service is not configured', async () => {
   const { PNG } = require('./helpers');
+  const config = require('../src/config');
+  config.tryOnServiceUrl = '';
   await api.post('/api/ai/try-on').set(customer.auth).field('garment_type', 'Abaya').expect(400);
-  await api.post('/api/ai/try-on').set(customer.auth).field('garment_type', 'Abaya')
-    .attach('photo', PNG, { filename: 'me.png', contentType: 'image/png' }).expect(503);
+  const photo = ['photo', PNG, { filename: 'me.png', contentType: 'image/png' }];
+  const garment = ['garment', PNG, { filename: 'dress.png', contentType: 'image/png' }];
+  const noGarment = await api.post('/api/ai/try-on').set(customer.auth).field('garment_type', 'Abaya').attach(...photo).expect(400);
+  assert.match(noGarment.body.message, /garment/);
+  await api.post('/api/ai/try-on').set(customer.auth).field('garment_type', 'Abaya').attach(...photo).attach(...garment).expect(503);
+});
+
+test('try-on sends both photos to the try-on service and saves its picture', async () => {
+  const http = require('http');
+  const config = require('../src/config');
+  const { PNG } = require('./helpers');
+  const received = [];
+  const service = http.createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', () => {
+      received.push(Buffer.concat(chunks).toString('latin1'));
+      if (/garment_type"\r\n\r\nBroken/.test(received.at(-1))) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ message: 'Try clearer photos' }));
+      }
+      res.writeHead(200, { 'Content-Type': 'image/png' });
+      return res.end(PNG);
+    });
+  });
+  await new Promise((resolve) => service.listen(0, '127.0.0.1', resolve));
+  const original = config.tryOnServiceUrl;
+  config.tryOnServiceUrl = `http://127.0.0.1:${service.address().port}`;
+  try {
+    const photo = ['photo', PNG, { filename: 'me.png', contentType: 'image/png' }];
+    const garment = ['garment', PNG, { filename: 'dress.png', contentType: 'image/png' }];
+    const made = await api.post('/api/ai/try-on').set(customer.auth)
+      .field('garment_type', 'Abaya').field('command', 'in black').attach(...photo).attach(...garment).expect(201);
+    assert.match(made.body.result_url, /\/uploads\/try-on\/.+-result\.png$/);
+    assert.ok(/name="photo"/.test(received[0]) && /name="garment"/.test(received[0]) && /in black/.test(received[0]));
+    assert.strictEqual(made.body.garment_url, undefined);
+    const saved = await api.put(`/api/ai/try-on/${made.body.id}/save`).set(customer.auth).expect(200);
+    assert.strictEqual(saved.body.is_saved, true);
+    // A message from the service reaches the customer as it is.
+    const refused = await api.post('/api/ai/try-on').set(customer.auth)
+      .field('garment_type', 'Broken').attach(...photo).attach(...garment).expect(502);
+    assert.strictEqual(refused.body.message, 'Try clearer photos');
+  } finally {
+    config.tryOnServiceUrl = original;
+    service.close();
+  }
 });
 
 test('a tailor manages the profile, price list and portfolio', async () => {

@@ -5,8 +5,9 @@ const tryOnSchema = createSchema({
   garment_type: { type: String, required: true },
   command: { type: String, default: null },
   photo_url: { type: String, required: true },
+  garment_url: { type: String, required: true },
   result_url: { type: String, required: true },
   is_saved: { type: Boolean, default: false },
-}, { hidden: ['customer_id', 'photo_url'] });
+}, { hidden: ['customer_id', 'photo_url', 'garment_url'] });
 
 module.exports = mongoose.model('TryOn', tryOnSchema);

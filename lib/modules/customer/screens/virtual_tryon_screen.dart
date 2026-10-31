@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
@@ -19,10 +21,11 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
   final _commandCtrl = TextEditingController();
   // The full-body photo the customer picked.
   XFile? _photo;
+  // The photo of the garment to try on.
+  XFile? _garment;
   bool _processing = false;
   TryOnResult? _result;
   bool _saving = false;
-  bool get _hasImage => _photo != null;
   bool get _hasResult => _result != null;
   String _selectedGarment = 'Bridal Lehenga';
   late AnimationController _spinCtrl;
@@ -57,8 +60,8 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
   }
 
   Future<void> _applyTryOn() async {
-    if (!_hasImage) {
-      showMessage(context, 'Please upload your photo first', success: false);
+    if (_photo == null || _garment == null) {
+      showMessage(context, _photo == null ? 'Please add your photo first' : 'Please add the dress photo', success: false);
       return;
     }
     setState(() {
@@ -71,6 +74,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
     try {
       final result = await CustomerService().generateTryOn(
         photo: _photo!,
+        garment: _garment!,
         garmentType: _selectedGarment,
         command: _commandCtrl.text,
       );
@@ -85,6 +89,11 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
   Future<void> _pickPhoto() async {
     final photo = await pickImage(context, title: 'Your full-body photo');
     if (photo != null && mounted) setState(() { _photo = photo; _result = null; });
+  }
+
+  Future<void> _pickGarment() async {
+    final garment = await pickImage(context, title: 'Photo of the dress');
+    if (garment != null && mounted) setState(() { _garment = garment; _result = null; });
   }
 
   Future<void> _save() async {
@@ -121,7 +130,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 20),
-                      _build3DViewer(),
+                      _buildViewer(),
                       const SizedBox(height: 24),
                       _buildUploadSection(),
                       const SizedBox(height: 20),
@@ -194,7 +203,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
               border:
                   Border.all(color: AppColors.teal.withValues(alpha: 0.4)),
             ),
-            child: Text('3D  AI',
+            child: Text('AI Try-On',
                 style: GoogleFonts.poppins(
                     color: AppColors.tealLight,
                     fontSize: 10,
@@ -205,8 +214,8 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
     );
   }
 
-  // ── 3D Viewer ────────────────────────────────────────────────────────────────
-  Widget _build3DViewer() {
+  // ── Result viewer ────────────────────────────────────────────────────────────────
+  Widget _buildViewer() {
     return Container(
       height: 270,
       decoration: BoxDecoration(
@@ -333,89 +342,27 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
 
   // ── Upload Section ───────────────────────────────────────────────────────────
   Widget _buildUploadSection() {
-    return GestureDetector(
-      onTap: _pickPhoto,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _hasImage
-              ? AppColors.success.withValues(alpha: 0.07)
-              : AppColors.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: _hasImage
-                ? AppColors.success.withValues(alpha: 0.4)
-                : AppColors.divider,
-          ),
+    return Column(
+      children: [
+        _UploadTile(
+          title: 'Your Photo',
+          hint: 'A full-body photo, standing straight, in plain clothes',
+          icon: Icons.person_rounded,
+          file: _photo,
+          onTap: _pickPhoto,
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: (_hasImage ? AppColors.success : AppColors.primary)
-                    .withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _hasImage
-                    ? Icons.check_circle_rounded
-                    : Icons.add_a_photo_rounded,
-                color: _hasImage
-                    ? AppColors.success
-                    : AppColors.primaryLight,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _hasImage ? 'Photo Selected' : 'Upload Your Photo',
-                    style: GoogleFonts.poppins(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13),
-                  ),
-                  Text(
-                    _hasImage
-                        ? 'Tap to change photo'
-                        : 'Take a selfie or pick from gallery',
-                    style: GoogleFonts.poppins(
-                        color: AppColors.textMuted, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: _hasImage
-                      ? [AppColors.success, const Color(0xFF16A34A)]
-                      : [AppColors.primary, AppColors.primaryLight],
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _hasImage ? 'Change' : 'Upload',
-                style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
+        const SizedBox(height: 12),
+        _UploadTile(
+          title: 'Dress Photo',
+          hint: 'A clear photo of the dress on its own, on a plain background',
+          icon: Icons.checkroom_rounded,
+          file: _garment,
+          onTap: _pickGarment,
         ),
-      ),
+      ],
     );
   }
 
-  // ── Garment Selector ─────────────────────────────────────────────────────────
   Widget _buildGarmentSelector() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -473,21 +420,15 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
   }
 
   // ── Command Section ──────────────────────────────────────────────────────────
+  // Helps the model with details the photo does not show, such as the fabric.
   Widget _buildCommandSection() {
-    final suggestions = [
-      'Make it red',
-      'Add embroidery',
-      'Formal look',
-      'Traditional style',
-    ];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
-          Icon(Icons.mic_rounded, color: AppColors.primaryLight, size: 16),
+          Icon(Icons.edit_note_rounded, color: AppColors.primaryLight, size: 18),
           const SizedBox(width: 6),
-          Text('AI Command',
+          Text('Describe the Garment (optional)',
               style: GoogleFonts.poppins(
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
@@ -495,33 +436,10 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
         ]),
         const SizedBox(height: 8),
         AppTextField(
-          hint:
-              'E.g. Show me in a royal blue bridal lehenga with silver work...',
+          hint: 'E.g. Long red silk lehenga with gold embroidery',
           icon: Icons.auto_awesome_rounded,
           ctrl: _commandCtrl,
           maxLines: 2,
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: suggestions
-              .map((s) => GestureDetector(
-                    onTap: () => _commandCtrl.text = s,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardAlt,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.divider),
-                      ),
-                      child: Text(s,
-                          style: GoogleFonts.poppins(
-                              color: AppColors.textSecondary, fontSize: 11)),
-                    ),
-                  ))
-              .toList(),
         ),
       ],
     );
@@ -626,7 +544,7 @@ class _ModelPlaceholder extends StatelessWidget {
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted, fontSize: 13)),
           const SizedBox(height: 2),
-          Text('Upload photo & select outfit',
+          Text('Add your photo and the dress',
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted, fontSize: 11)),
         ],
@@ -714,4 +632,65 @@ class _ViewBtn extends StatelessWidget {
           child: Icon(icon, color: AppColors.tealLight, size: 15),
         ),
       );
+}
+
+// A photo the customer adds: a thumbnail once it is picked, and a prompt before.
+class _UploadTile extends StatelessWidget {
+  final String title, hint;
+  final IconData icon;
+  final XFile? file;
+  final VoidCallback onTap;
+  const _UploadTile({required this.title, required this.hint, required this.icon, required this.file, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final picked = file != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: picked ? AppColors.success.withValues(alpha: 0.07) : AppColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: picked ? AppColors.success.withValues(alpha: 0.4) : AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: picked
+                    ? FutureBuilder<Uint8List>(
+                        future: file!.readAsBytes(),
+                        builder: (context, snapshot) => snapshot.hasData
+                            ? Image.memory(snapshot.data!, fit: BoxFit.cover)
+                            : const SizedBox.shrink(),
+                      )
+                    : Container(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        child: Icon(icon, color: AppColors.primaryLight, size: 28),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(picked ? '$title added' : title,
+                      style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text(picked ? 'Tap to change' : hint,
+                      style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
+                ],
+              ),
+            ),
+            Icon(picked ? Icons.check_circle_rounded : Icons.add_a_photo_rounded,
+                color: picked ? AppColors.success : AppColors.textMuted, size: 22),
+          ],
+        ),
+      ),
+    );
+  }
 }

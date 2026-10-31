@@ -40,8 +40,9 @@ class ApiClient {
 
   static const _tokenKey = 'auth_token';
   static const _timeout = Duration(seconds: 30);
-  // The try-on waits for the image to be rendered.
-  static const _uploadTimeout = Duration(seconds: 90);
+  // The try-on waits for the image to be rendered, which can take a minute or
+  // more. Other uploads finish much sooner.
+  static const _uploadTimeout = Duration(seconds: 200);
 
   final http.Client _http = http.Client();
   String? _token;
