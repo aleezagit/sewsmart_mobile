@@ -1,10 +1,11 @@
 // ─── Admin Service ────────────────────────────────────────────────────────────
-// API-ready: every method returns a Future and runs on mock data for now.
-// The TODO above each method names the endpoint that replaces its mock.
-// Request and response shapes are in docs/API.md at the repository root.
-// Screens should call this service and never read AdminMockData directly.
+// Every admin panel call to the backend (docs/API.md, section 4). Screens call
+// this service only. Loads throw AdminApiException when they fail, and
+// actions return false; either way AdminApi has already shown the message.
 
-import '../data/admin_mock_data.dart';
+import 'package:flutter/material.dart';
+
+import '../api/admin_api.dart';
 import '../models/admin_models.dart';
 
 class AdminService {
@@ -12,394 +13,190 @@ class AdminService {
   factory AdminService() => _instance;
   AdminService._internal();
 
-  Future<void> _delay() => Future.delayed(const Duration(milliseconds: 400));
+  final AdminApi _api = AdminApi();
+
+  // Runs an action and says whether it worked.
+  Future<bool> _act(Future<dynamic> Function() request) async {
+    try {
+      await request();
+      return true;
+    } on AdminApiException {
+      return false;
+    }
+  }
 
   // ── Session ───────────────────────────────────────────────
-  // Set by login and cleared by logout. With the real API the token goes in
-  // the Authorization header of every request.
-  AdminAuthResult? _session;
-  bool get isLoggedIn => _session != null;
-  String get adminName => _session?.name ?? 'Admin';
-  String get adminEmail => _session?.email ?? '';
+  String _name = 'Admin';
+  String _email = '';
+  String get adminName => _name;
+  String get adminEmail => _email;
 
-  // ── Auth ──────────────────────────────────────────────────
-  // TODO: POST /api/admin/auth/login
-  Future<AdminAuthResult> login(String email, String password) async {
-    await _delay();
-    if (email.trim() == 'admin@sewsmart.com' && password == 'admin123') {
-      const result = AdminAuthResult(
-        success: true,
-        token: 'mock_admin_token',
-        name: 'Admin',
-        email: 'admin@sewsmart.com',
-      );
-      _session = result;
-      return result;
-    }
-    return const AdminAuthResult(
-      success: false,
-      error: 'Invalid credentials. Please try again.',
-    );
-  }
-
-  // TODO: POST /api/admin/auth/logout
-  Future<void> logout() async {
-    _session = null;
-    await _delay();
-  }
-
-  // TODO: PUT /api/admin/auth/password
-  Future<bool> changePassword(String currentPassword, String newPassword) async {
-    await _delay();
-    return currentPassword.isNotEmpty && newPassword.isNotEmpty;
-  }
-
-  // ── Dashboard ─────────────────────────────────────────────
-  // TODO: GET /api/admin/stats
-  Future<PlatformStats> getStats() async {
-    await _delay();
-    return AdminMockData.platformStats;
-  }
-
-  // TODO: GET /api/admin/revenue/monthly?months=6
-  Future<List<MonthlyRevenue>> getMonthlyRevenue({int months = 6}) async {
-    await _delay();
-    final data = AdminMockData.monthlyRevenue;
-    final start = data.length > months ? data.length - months : 0;
-    return data.sublist(start);
-  }
-
-  // TODO: GET /api/admin/tailors/top?limit=5
-  Future<List<TopTailor>> getTopTailors({int limit = 5}) async {
-    await _delay();
-    return AdminMockData.topTailors.take(limit).toList();
-  }
-
-  // TODO: GET /api/admin/orders?limit=5
-  Future<List<AdminOrder>> getRecentOrders({int limit = 5}) async {
-    await _delay();
-    return AdminMockData.orders.take(limit).toList();
-  }
-
-  // ── Users ─────────────────────────────────────────────────
-  // TODO: GET /api/admin/users?role=&status=
-  Future<List<AdminUser>> getUsers({String? role, String? status}) async {
-    await _delay();
-    var users = List<AdminUser>.from(AdminMockData.allUsers);
-    if (role != null && role != 'All') {
-      users = users.where((u) => u.role.toLowerCase() == role.toLowerCase()).toList();
-    }
-    if (status != null && status != 'All') {
-      users = users.where((u) => u.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return users;
-  }
-
-  // TODO: PUT /api/admin/users/:id/status
-  // The mock flips Active and Suspended. The real call sends the new status.
-  Future<bool> suspendUser(String id) async {
-    await _delay();
-    final idx = AdminMockData.customers.indexWhere((u) => u.id == id);
-    if (idx != -1) {
-      AdminMockData.customers[idx].status =
-          AdminMockData.customers[idx].status == 'Active' ? 'Suspended' : 'Active';
-      return true;
-    }
-    return false;
-  }
-
-  // TODO: DELETE /api/admin/users/:id
-  Future<bool> deleteUser(String id) async {
-    await _delay();
-    AdminMockData.customers.removeWhere((u) => u.id == id);
+  // Signs back in with the session saved by the last login. False when there
+  // is none. An expired one is caught by the first request.
+  Future<bool> restoreSession() async {
+    final session = await _api.restoreSession();
+    if (session == null) return false;
+    _name = session.name;
+    _email = session.email;
     return true;
   }
 
+  // ── Auth ──────────────────────────────────────────────────
+  // POST /api/admin/auth/login
+  Future<AdminAuthResult> login(String email, String password) async {
+    try {
+      final json = objectOf(await _api.post('/auth/login', {'email': email.trim(), 'password': password}, true));
+      final admin = objectOf(json['admin']);
+      _name = admin['name'] ?? 'Admin';
+      _email = admin['email'] ?? '';
+      await _api.saveSession(json['token'] as String, _name, _email);
+      return AdminAuthResult(success: true, name: _name, email: _email);
+    } on AdminApiException catch (e) {
+      return AdminAuthResult(success: false, error: e.message);
+    }
+  }
+
+  // POST /api/admin/auth/logout. The local session ends even when it fails.
+  Future<void> logout() async {
+    await _act(() => _api.post('/auth/logout'));
+    await _api.clearSession();
+  }
+
+  // PUT /api/admin/auth/password
+  Future<bool> changePassword(String currentPassword, String newPassword) =>
+      _act(() => _api.put('/auth/password', {'current_password': currentPassword, 'new_password': newPassword}));
+
+  // ── Dashboard ─────────────────────────────────────────────
+  // GET /api/admin/stats
+  Future<PlatformStats> getStats() async => PlatformStats.fromJson(objectOf(await _api.get('/stats')));
+
+  // GET /api/admin/revenue/monthly?months=
+  Future<List<MonthlyRevenue>> getMonthlyRevenue({int months = 6}) async =>
+      listOf(await _api.get('/revenue/monthly', query: {'months': months}), MonthlyRevenue.fromJson);
+
+  // GET /api/admin/tailors/top?limit=
+  Future<List<TopTailor>> getTopTailors({int limit = 5}) async =>
+      listOf(await _api.get('/tailors/top', query: {'limit': limit}), TopTailor.fromJson);
+
+  // GET /api/admin/orders?limit=
+  Future<List<AdminOrder>> getRecentOrders({int limit = 5}) async =>
+      listOf(await _api.get('/orders', query: {'limit': limit}), AdminOrder.fromJson);
+
+  // ── Customers ─────────────────────────────────────────────
+  // GET /api/admin/users
+  Future<List<AdminUser>> getUsers() async => listOf(await _api.get('/users'), AdminUser.fromJson);
+
+  // PUT /api/admin/users/:id/status
+  Future<bool> suspendUser(String id, {required bool suspend}) =>
+      _act(() => _api.put('/users/$id/status', {'status': suspend ? 'suspended' : 'active'}));
+
+  // DELETE /api/admin/users/:id
+  Future<bool> deleteUser(String id) => _act(() => _api.delete('/users/$id'));
+
   // ── Tailors ───────────────────────────────────────────────
-  // TODO: GET /api/admin/tailors?status=
-  Future<List<AdminTailor>> getTailors({String? status}) async {
-    await _delay();
-    var tailors = List<AdminTailor>.from(AdminMockData.tailors);
-    if (status != null && status != 'All') {
-      tailors = tailors.where((t) => t.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return tailors;
-  }
+  // GET /api/admin/tailors
+  Future<List<AdminTailor>> getTailors() async => listOf(await _api.get('/tailors'), AdminTailor.fromJson);
 
-  // TODO: PUT /api/admin/tailors/:id/status
-  // The mock flips Active and Suspended. The real call sends the new status.
-  Future<bool> suspendTailor(String id) async {
-    await _delay();
-    final idx = AdminMockData.tailors.indexWhere((t) => t.id == id);
-    if (idx != -1) {
-      AdminMockData.tailors[idx].status =
-          AdminMockData.tailors[idx].status == 'Active' ? 'Suspended' : 'Active';
-      return true;
-    }
-    return false;
-  }
+  // PUT /api/admin/tailors/:id/status
+  Future<bool> suspendTailor(String id, {required bool suspend}) =>
+      _act(() => _api.put('/tailors/$id/status', {'status': suspend ? 'suspended' : 'active'}));
 
-  // TODO: DELETE /api/admin/tailors/:id
-  Future<bool> removeTailor(String id) async {
-    await _delay();
-    final before = AdminMockData.tailors.length;
-    AdminMockData.tailors.removeWhere((t) => t.id == id);
-    return AdminMockData.tailors.length < before;
-  }
-
-  // ── Riders ────────────────────────────────────────────────
-  // TODO: GET /api/admin/riders?status=
-  Future<List<AdminRider>> getRiders({String? status}) async {
-    await _delay();
-    var riders = List<AdminRider>.from(AdminMockData.riders);
-    if (status != null && status != 'All') {
-      riders = riders.where((r) => r.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return riders;
-  }
-
-  // TODO: PUT /api/admin/riders/:id/status
-  // The mock flips Active and Suspended. The real call sends the new status.
-  Future<bool> suspendRider(String id) async {
-    await _delay();
-    final idx = AdminMockData.riders.indexWhere((r) => r.id == id);
-    if (idx != -1) {
-      AdminMockData.riders[idx].status =
-          AdminMockData.riders[idx].status == 'Active' ? 'Suspended' : 'Active';
-      return true;
-    }
-    return false;
-  }
-
-  // TODO: DELETE /api/admin/riders/:id
-  Future<bool> removeRider(String id) async {
-    await _delay();
-    final before = AdminMockData.riders.length;
-    AdminMockData.riders.removeWhere((r) => r.id == id);
-    return AdminMockData.riders.length < before;
-  }
+  // DELETE /api/admin/tailors/:id
+  Future<bool> removeTailor(String id) => _act(() => _api.delete('/tailors/$id'));
 
   // ── Verifications ─────────────────────────────────────────
-  // TODO: GET /api/admin/verifications?status=pending
-  Future<List<PendingVerification>> getPendingVerifications() async {
-    await _delay();
-    return AdminMockData.pendingVerifications
-        .where((v) => v.status == 'Pending')
-        .toList();
-  }
+  // GET /api/admin/verifications?status=pending
+  Future<List<PendingVerification>> getPendingVerifications() async =>
+      listOf(await _api.get('/verifications', query: {'status': 'pending'}), PendingVerification.fromJson);
 
-  // TODO: GET /api/admin/verifications
-  Future<List<PendingVerification>> getAllVerifications() async {
-    await _delay();
-    return List<PendingVerification>.from(AdminMockData.pendingVerifications);
-  }
+  // GET /api/admin/verifications
+  Future<List<PendingVerification>> getAllVerifications() async =>
+      listOf(await _api.get('/verifications'), PendingVerification.fromJson);
 
-  // TODO: PUT /api/admin/verifications/:id/approve
-  Future<bool> approveVerification(String id) async {
-    await _delay();
-    final idx = AdminMockData.pendingVerifications.indexWhere((v) => v.id == id);
-    if (idx != -1) {
-      AdminMockData.pendingVerifications[idx].status = 'Approved';
-      return true;
-    }
-    return false;
-  }
+  // PUT /api/admin/verifications/:id/approve
+  Future<bool> approveVerification(String id) => _act(() => _api.put('/verifications/$id/approve'));
 
-  // TODO: PUT /api/admin/verifications/:id/reject
-  Future<bool> rejectVerification(String id, String reason) async {
-    await _delay();
-    final idx = AdminMockData.pendingVerifications.indexWhere((v) => v.id == id);
-    if (idx != -1) {
-      AdminMockData.pendingVerifications[idx].status = 'Rejected';
-      return true;
-    }
-    return false;
-  }
+  // PUT /api/admin/verifications/:id/reject
+  Future<bool> rejectVerification(String id, String reason) =>
+      _act(() => _api.put('/verifications/$id/reject', {'reason': reason}));
 
-  // TODO: POST /api/admin/verifications/:id/request-documents
-  Future<bool> requestMoreDocuments(String id) async {
-    await _delay();
-    return AdminMockData.pendingVerifications.any((v) => v.id == id);
-  }
+  // POST /api/admin/verifications/:id/request-documents
+  Future<bool> requestMoreDocuments(String id) => _act(() => _api.post('/verifications/$id/request-documents'));
 
   // ── Orders ────────────────────────────────────────────────
-  // TODO: GET /api/admin/orders?status=
-  Future<List<AdminOrder>> getAllOrders({String? status}) async {
-    await _delay();
-    var orders = List<AdminOrder>.from(AdminMockData.orders);
-    if (status != null && status != 'All') {
-      orders = orders.where((o) => o.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return orders;
-  }
+  // GET /api/admin/orders. The screen filters its tabs locally.
+  Future<List<AdminOrder>> getAllOrders() async => listOf(await _api.get('/orders'), AdminOrder.fromJson);
 
-  // TODO: PUT /api/admin/orders/:id/cancel
-  Future<bool> cancelOrder(String id) async {
-    await _delay();
-    final idx = AdminMockData.orders.indexWhere((o) => o.id == id);
-    if (idx != -1) {
-      AdminMockData.orders[idx].status = 'Cancelled';
-      return true;
-    }
-    return false;
-  }
+  // PUT /api/admin/orders/:id/cancel
+  Future<bool> cancelOrder(String id) => _act(() => _api.put('/orders/$id/cancel'));
 
   // ── Payments ──────────────────────────────────────────────
-  // TODO: GET /api/admin/payments?method=&status=
-  Future<List<AdminPayment>> getAllPayments({String? method, String? status}) async {
-    await _delay();
-    var payments = List<AdminPayment>.from(AdminMockData.payments);
-    if (method != null && method != 'All') {
-      payments = payments.where((p) => p.method == method).toList();
-    }
-    if (status != null && status != 'All') {
-      payments = payments.where((p) => p.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return payments;
-  }
+  // GET /api/admin/payments
+  Future<List<AdminPayment>> getAllPayments() async => listOf(await _api.get('/payments'), AdminPayment.fromJson);
 
-  // TODO: GET /api/admin/payments/summary
-  // The mock estimates "this month" as 30% of the total, as the screen does today.
-  Future<PaymentSummary> getPaymentSummary() async {
-    await _delay();
-    double sum(String status) => AdminMockData.payments
-        .where((p) => p.status == status)
-        .fold(0.0, (a, b) => a + b.amount);
-    final paid = sum('Paid');
-    return PaymentSummary(
-      totalRevenue: paid,
-      thisMonth: paid * 0.3,
-      pending: sum('Processing'),
-      refunded: sum('Refunded'),
-    );
-  }
+  // GET /api/admin/payments/summary
+  Future<PaymentSummary> getPaymentSummary() async =>
+      PaymentSummary.fromJson(objectOf(await _api.get('/payments/summary')));
 
   // ── Disputes ──────────────────────────────────────────────
-  // TODO: GET /api/admin/disputes?status=
-  Future<List<AdminDispute>> getDisputes({String? status}) async {
-    await _delay();
-    var disputes = List<AdminDispute>.from(AdminMockData.disputes);
-    if (status != null && status != 'All') {
-      disputes = disputes.where((d) => d.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return disputes;
-  }
+  // GET /api/admin/disputes
+  Future<List<AdminDispute>> getDisputes() async => listOf(await _api.get('/disputes'), AdminDispute.fromJson);
 
-  // TODO: PUT /api/admin/disputes/:id/resolve
-  Future<bool> resolveDispute(String id, String resolution, String notes) async {
-    await _delay();
-    final idx = AdminMockData.disputes.indexWhere((d) => d.id == id);
-    if (idx != -1) {
-      AdminMockData.disputes[idx].status = 'Resolved';
-      AdminMockData.disputes[idx].resolution = '$resolution: $notes';
-      return true;
-    }
-    return false;
-  }
+  // PUT /api/admin/disputes/:id/resolve. resolution is the label the screen
+  // shows: Refund, Warning or Dismiss.
+  Future<bool> resolveDispute(String id, String resolution, String notes) =>
+      _act(() => _api.put('/disputes/$id/resolve', {'resolution': resolution.toLowerCase(), 'notes': notes}));
 
   // ── Reports ───────────────────────────────────────────────
-  // TODO: GET /api/admin/reports?range=
-  Future<AdminReport> getReports({String range = 'This Month'}) async {
-    await _delay();
-    return AdminReport(
-      range: range,
-      stats: AdminMockData.platformStats,
-      monthlyRevenue: AdminMockData.monthlyRevenue,
-      revenueByCategory: AdminMockData.revenueByCategory,
-      topTailors: AdminMockData.topTailors,
-      orderStatusDistribution: AdminMockData.orderStatusDistribution,
-    );
+  static const _ranges = {'Today': 'today', 'This Week': 'thisWeek', 'This Month': 'thisMonth', 'Custom': 'custom'};
+
+  // GET /api/admin/reports?range=&from=&to=. range is the chip label, and
+  // Custom needs [dates].
+  Future<AdminReport> getReports({String range = 'This Month', DateTimeRange? dates}) async {
+    String day(DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    final json = await _api.get('/reports', query: {
+      'range': _ranges[range] ?? 'thisMonth',
+      if (dates != null) 'from': day(dates.start),
+      if (dates != null) 'to': day(dates.end),
+    });
+    return AdminReport.fromJson(objectOf(json), range);
   }
 
   // ── Content moderation ────────────────────────────────────
-  // TODO: GET /api/admin/content/designs
-  Future<List<ContentItem>> getDesigns() async {
-    await _delay();
-    return List<ContentItem>.from(AdminMockData.designs);
-  }
+  // GET /api/admin/content/designs
+  Future<List<ContentItem>> getDesigns() async => listOf(await _api.get('/content/designs'), ContentItem.fromJson);
 
-  // TODO: DELETE /api/admin/content/designs/:id
-  Future<bool> removeDesign(String id) async {
-    await _delay();
-    final before = AdminMockData.designs.length;
-    AdminMockData.designs.removeWhere((d) => d.id == id);
-    return AdminMockData.designs.length < before;
-  }
+  // DELETE /api/admin/content/designs/:id
+  Future<bool> removeDesign(String id) => _act(() => _api.delete('/content/designs/$id'));
 
-  // TODO: GET /api/admin/content/reviews
-  Future<List<ReviewItem>> getReviews() async {
-    await _delay();
-    return List<ReviewItem>.from(AdminMockData.reviews);
-  }
+  // GET /api/admin/content/reviews
+  Future<List<ReviewItem>> getReviews() async => listOf(await _api.get('/content/reviews'), ReviewItem.fromJson);
 
-  // TODO: DELETE /api/admin/content/reviews/:id
-  Future<bool> removeReview(String id) async {
-    await _delay();
-    final before = AdminMockData.reviews.length;
-    AdminMockData.reviews.removeWhere((r) => r.id == id);
-    return AdminMockData.reviews.length < before;
-  }
+  // DELETE /api/admin/content/reviews/:id
+  Future<bool> removeReview(String id) => _act(() => _api.delete('/content/reviews/$id'));
 
-  // TODO: GET /api/admin/content/reports?status=
-  Future<List<FlaggedItem>> getFlaggedContent({String? status}) async {
-    await _delay();
-    var items = List<FlaggedItem>.from(AdminMockData.flaggedContent);
-    if (status != null && status != 'All') {
-      items = items.where((f) => f.status.toLowerCase() == status.toLowerCase()).toList();
-    }
-    return items;
-  }
+  // GET /api/admin/content/reports
+  Future<List<FlaggedItem>> getFlaggedContent() async =>
+      listOf(await _api.get('/content/reports'), FlaggedItem.fromJson);
 
-  // TODO: PUT /api/admin/content/reports/:id/resolve
-  // action is "Remove Content", "Issue Warning" or "Dismiss Report".
-  Future<bool> resolveFlaggedContent(String id, String action) async {
-    await _delay();
-    final idx = AdminMockData.flaggedContent.indexWhere((f) => f.id == id);
-    if (idx != -1) {
-      AdminMockData.flaggedContent[idx].status = 'Resolved';
-      return true;
-    }
-    return false;
-  }
+  static const _actions = {'Remove Content': 'remove', 'Issue Warning': 'warn', 'Dismiss Report': 'dismiss'};
+
+  // PUT /api/admin/content/reports/:id/resolve. action is "Remove Content",
+  // "Issue Warning" or "Dismiss Report".
+  Future<bool> resolveFlaggedContent(String id, String action) =>
+      _act(() => _api.put('/content/reports/$id/resolve', {'action': _actions[action] ?? 'dismiss'}));
 
   // ── Settings ──────────────────────────────────────────────
-  // TODO: GET /api/admin/settings
-  Future<AdminSettings> getSettings() async {
-    await _delay();
-    return AdminMockData.settings;
-  }
+  // GET /api/admin/settings
+  Future<AdminSettings> getSettings() async => AdminSettings.fromJson(objectOf(await _api.get('/settings')));
 
-  // TODO: PUT /api/admin/settings
-  // Categories are not part of this call. They change through the two
-  // category endpoints below.
-  Future<bool> updateSettings(AdminSettings settings) async {
-    await _delay();
-    AdminMockData.settings
-      ..commissionRate = settings.commissionRate
-      ..notifyNewOrder = settings.notifyNewOrder
-      ..notifyOrderComplete = settings.notifyOrderComplete
-      ..notifyNewVerification = settings.notifyNewVerification
-      ..notifyDispute = settings.notifyDispute
-      ..notifyPayment = settings.notifyPayment
-      ..notifyMarketing = settings.notifyMarketing
-      ..twoFaEnabled = settings.twoFaEnabled
-      ..sessionTimeout = settings.sessionTimeout;
-    return true;
-  }
+  // PUT /api/admin/settings
+  Future<bool> updateSettings(AdminSettings settings) => _act(() => _api.put('/settings', settings.toJson()));
 
-  // TODO: POST /api/admin/settings/categories
-  Future<bool> addCategory(String name) async {
-    await _delay();
-    final value = name.trim();
-    final categories = AdminMockData.settings.categories;
-    if (value.isEmpty || categories.contains(value)) return false;
-    categories.add(value);
-    return true;
-  }
+  // POST /api/admin/settings/categories
+  Future<bool> addCategory(String name) => _act(() => _api.post('/settings/categories', {'name': name.trim()}));
 
-  // TODO: DELETE /api/admin/settings/categories/:name
-  Future<bool> removeCategory(String name) async {
-    await _delay();
-    return AdminMockData.settings.categories.remove(name);
-  }
+  // DELETE /api/admin/settings/categories/:name
+  Future<bool> removeCategory(String name) =>
+      _act(() => _api.delete('/settings/categories/${Uri.encodeComponent(name)}'));
 }

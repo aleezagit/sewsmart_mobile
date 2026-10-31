@@ -692,7 +692,7 @@ class AdminAvatar extends StatelessWidget {
       AdminColors.primary,
       AdminColors.customerColor,
       AdminColors.tailorColor,
-      AdminColors.riderColor,
+      AdminColors.orange,
       AdminColors.info,
       AdminColors.warning,
     ];

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -39,12 +40,14 @@ class _OrdersScreenState extends State<OrdersScreen>
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final data = await _service.getAllOrders();
+    try {
+      final data = await _service.getAllOrders();
+      if (mounted) setState(() => _orders = data);
+    } on AdminApiException {
+      // AdminApi already showed the message.
+    }
     if (mounted) {
-      setState(() {
-        _orders = data;
-        _loading = false;
-      });
+      setState(() => _loading = false);
       _applyFilter();
     }
   }
@@ -133,7 +136,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                         icon: Icons.cancel_outlined,
                         onPressed: () async {
                           Navigator.pop(ctx);
-                          await _service.cancelOrder(order.id);
+                          if (!await _service.cancelOrder(order.id)) return;
                           _load();
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -281,8 +284,7 @@ class _OrdersScreenState extends State<OrdersScreen>
                                   color: AdminColors.error,
                                   tooltip: 'Cancel',
                                   onTap: () async {
-                                    await _service.cancelOrder(o.id);
-                                    _load();
+                                    if (await _service.cancelOrder(o.id)) _load();
                                   },
                                 ),
                             ]),

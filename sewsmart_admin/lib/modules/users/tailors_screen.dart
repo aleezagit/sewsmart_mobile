@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -38,16 +39,21 @@ class _TailorsScreenState extends State<TailorsScreen>
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final tailors = await _service.getTailors();
-    final pending = await _service.getPendingVerifications();
-    if (mounted) {
-      setState(() {
-        _tailors = tailors;
-        _filtered = tailors;
-        _pending = pending.where((v) => v.role == 'tailor').toList();
-        _loading = false;
-      });
+    try {
+      final tailors = await _service.getTailors();
+      final pending = await _service.getPendingVerifications();
+      if (mounted) {
+        setState(() {
+          _tailors = tailors;
+          _filtered = tailors;
+          _pending = pending;
+        });
+        _applyFilters();
+      }
+    } on AdminApiException {
+      // AdminApi already showed the message.
     }
+    if (mounted) setState(() => _loading = false);
   }
 
   void _applyFilters() {
@@ -64,7 +70,7 @@ class _TailorsScreenState extends State<TailorsScreen>
   }
 
   Future<void> _approvePending(String id) async {
-    await _service.approveVerification(id);
+    if (!await _service.approveVerification(id)) return;
     _load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -107,7 +113,7 @@ class _TailorsScreenState extends State<TailorsScreen>
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await _service.rejectVerification(id, ctrl.text);
+              if (!await _service.rejectVerification(id, ctrl.text)) return;
               _load();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -131,15 +137,9 @@ class _TailorsScreenState extends State<TailorsScreen>
   }
 
   Future<void> _requestMoreDocs(String id) async {
-    final sent = await _service.requestMoreDocuments(id);
-    if (!mounted) return;
+    if (!await _service.requestMoreDocuments(id) || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          sent ? 'Request sent to applicant.' : 'Could not send the document request.',
-          style: GoogleFonts.poppins(),
-        ),
-      ),
+      SnackBar(content: Text('Request sent to applicant.', style: GoogleFonts.poppins())),
     );
   }
 
@@ -165,8 +165,7 @@ class _TailorsScreenState extends State<TailorsScreen>
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await _service.removeTailor(tailor.id);
-              if (mounted) _load();
+              if (await _service.removeTailor(tailor.id) && mounted) _load();
             },
             style: ElevatedButton.styleFrom(
                 backgroundColor: AdminColors.error,
@@ -253,8 +252,8 @@ class _TailorsScreenState extends State<TailorsScreen>
                     _applyFilters();
                   },
                   onSuspend: (id) async {
-                    await _service.suspendTailor(id);
-                    _load();
+                    final tailor = _tailors.firstWhere((t) => t.id == id);
+                    if (await _service.suspendTailor(id, suspend: tailor.status == 'Active')) _load();
                   },
                   onRemove: _confirmRemove,
                 ),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -31,16 +32,20 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
     setState(() => _loading = true);
     final paymentsFuture = _service.getAllPayments();
     final summaryFuture = _service.getPaymentSummary();
-    final data = await paymentsFuture;
-    final summary = await summaryFuture;
-    if (mounted) {
-      setState(() {
-        _payments = data;
-        _filtered = data;
-        _summary = summary;
-        _loading = false;
-      });
+    try {
+      final data = await paymentsFuture;
+      final summary = await summaryFuture;
+      if (mounted) {
+        setState(() {
+          _payments = data;
+          _summary = summary;
+        });
+        _applyFilters();
+      }
+    } on AdminApiException {
+      // AdminApi already showed the message.
     }
+    if (mounted) setState(() => _loading = false);
   }
 
   void _applyFilters() {
@@ -69,17 +74,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
           PageHeader(
             title: 'Payments',
             subtitle: 'Monitor all financial transactions',
-            action: AdminButton(
-              label: 'Export',
-              icon: Icons.download_rounded,
-              isSmall: true,
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Exported!', style: GoogleFonts.poppins()),
-                  backgroundColor: AdminColors.success,
-                ),
-              ),
-            ),
           ),
           const SizedBox(height: 20),
 
@@ -92,8 +86,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   iconColor: AdminColors.success,
                   value: 'Rs. ${(_totalRevenue / 1000).toStringAsFixed(0)}K',
                   label: 'Total Revenue',
-                  changeText: '+18%',
-                  isPositiveChange: true,
                 ),
               ),
               const SizedBox(width: 16),
@@ -103,8 +95,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   iconColor: AdminColors.primary,
                   value: 'Rs. ${(_thisMonth / 1000).toStringAsFixed(0)}K',
                   label: 'This Month',
-                  changeText: '+13%',
-                  isPositiveChange: true,
                 ),
               ),
               const SizedBox(width: 16),
@@ -212,7 +202,7 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                       children: [
                         AdminRow(
                           cells: [
-                            Text(p.id,
+                            Text(p.transactionId,
                                 style: GoogleFonts.poppins(
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,

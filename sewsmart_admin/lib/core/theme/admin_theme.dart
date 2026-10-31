@@ -16,7 +16,7 @@ class AdminColors {
   static const Color border = Color(0xFFE5E7EB);
   static const Color customerColor = Color(0xFF7C3AED);
   static const Color tailorColor = Color(0xFF0D9488);
-  static const Color riderColor = Color(0xFFEA580C);
+  static const Color orange = Color(0xFFEA580C);
 
   static const Color sidebarText = Color(0xFFB0B8D0);
   static const Color sidebarTextActive = Colors.white;

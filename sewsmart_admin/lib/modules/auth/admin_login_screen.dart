@@ -13,8 +13,8 @@ class AdminLoginScreen extends StatefulWidget {
 }
 
 class _AdminLoginScreenState extends State<AdminLoginScreen> {
-  final _emailCtrl = TextEditingController(text: 'admin@sewsmart.com');
-  final _passCtrl = TextEditingController(text: 'admin123');
+  final _emailCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
   bool _obscurePass = true;
   bool _isLoading = false;
   String? _error;
@@ -118,35 +118,6 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                       ),
                     ),
                     const SizedBox(height: 32),
-
-                    // Hint box
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AdminColors.info.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: AdminColors.info.withOpacity(0.25),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline,
-                              color: AdminColors.info, size: 16),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'Demo: admin@sewsmart.com / admin123',
-                              style: GoogleFonts.poppins(
-                                fontSize: 12,
-                                color: AdminColors.info,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
 
                     // Email
                     AdminTextField(

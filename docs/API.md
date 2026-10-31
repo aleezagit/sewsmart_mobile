@@ -1,8 +1,8 @@
 # SewSmart API contract
 
-Draft 3, 11 October 2026. The 36 admin panel endpoints and the 68 mobile endpoints added since 7 October 2026 are designed in full. The 29 mobile endpoints that the app already named are listed, and the request and response details of most of them still have to be written. Draft 3 adds the 18 endpoints behind the screens built on 11 October 2026 (3.18 to 3.24).
+Draft 4. The API is built in `backend/` and both apps call it. There are no riders: the tailor delivers the order and marks it `delivered`. Draft 3, 11 October 2026. The 36 admin panel endpoints and the 68 mobile endpoints added since 7 October 2026 are designed in full. The 29 mobile endpoints that the app already named are listed, and the request and response details of most of them still have to be written. Draft 3 adds the 18 endpoints behind the screens built on 11 October 2026 (3.18 to 3.24).
 
-This file is the agreement between the Flutter apps and the backend. Every endpoint below has a matching `// TODO: METHOD /path` comment above the service method that will call it. To change an endpoint, change this file and that comment in the same pull request.
+This file is the agreement between the Flutter apps and the backend. Every endpoint below has a matching `// METHOD /path` comment above the service method that calls it. To change an endpoint, change this file, the backend and that comment in the same pull request.
 
 ## Contents
 
@@ -35,7 +35,7 @@ The API always sends and accepts the values in the middle column. The admin pane
 
 | Field | API values | Admin panel label |
 | --- | --- | --- |
-| `role` | `customer`, `tailor`, `rider` | Same word, capitalised |
+| `role` | `customer`, `tailor` | Same word, capitalised |
 | Account `status` | `active`, `suspended` | Same word, capitalised |
 | Verification `status` | `pending`, `approved`, `rejected` | Same word, capitalised |
 | Order `status` | `pending`, `accepted`, `rejected`, `inProgress`, `qualityCheck`, `readyForDelivery`, `delivered`, `completed`, `cancelled` | Four tabs, see the next table |
@@ -54,7 +54,7 @@ The API always sends and accepts the values in the middle column. The admin pane
 | Message `type` | `text`, `image`, `document` | Not shown in the admin panel |
 | Stream `status` | `live`, `ended` | Not shown in the admin panel |
 | Measurement `unit` | `cm`, `in` | Not shown in the admin panel |
-| Notification `type` | `order`, `payment`, `chat`, `delivery`, `new_order`, `message`, `verified`, `pickup_assigned`, `delivery_confirmed`, `issue_resolved` | Not shown in the admin panel |
+| Notification `type` | `order`, `payment`, `chat`, `delivery`, `new_order`, `message`, `verified`, `issue_resolved` | Not shown in the admin panel |
 
 Notification types are the one exception to the camelCase rule. The three notification screens already compare these exact strings to pick an icon, and an unknown type gets a default icon. The customer screen expects `chat` for a new message and the tailor screen expects `message`.
 
@@ -71,7 +71,7 @@ The admin Orders screen has four tabs for the nine order statuses. The grouping 
 
 The mobile app needs 97 endpoints. The service files already named 29 of them as TODO comments. 50 more were added on 7 October 2026 for the features that had no endpoint at all, and 18 on 11 October 2026 for the screens that were missing. Each added one is a mock-backed method with its endpoint as a TODO comment. The screens built on 11 October 2026 call their methods. Most older screens still read mock data directly, and connecting them is part of the backend work.
 
-A user keeps one ID across the app. The tailor `T001` in `/api/tailors/T001` is the user `T001`, and the same holds for riders.
+A user keeps one ID across the app. The tailor `T001` in `/api/tailors/T001` is the user `T001`.
 
 ### 3.1 Endpoints the app already named
 
@@ -84,7 +84,7 @@ Service: `lib/core/services/auth_service.dart`
 | Endpoint | Service method | Purpose |
 | --- | --- | --- |
 | `POST /api/auth/login` | `login` | Sign in with email and password. Returns a token and the user. |
-| `POST /api/auth/register` | `register` | Create a customer, tailor or rider account. |
+| `POST /api/auth/register` | `register` | Create a customer or tailor account. |
 | `POST /api/auth/send-otp` | `sendOtp` | Send a 4-digit code to a phone number. |
 | `POST /api/auth/verify-otp` | `verifyOtp` | Check the code. |
 | `POST /api/auth/forgot-password` | `forgotPassword` | Email a password reset link. |
@@ -96,14 +96,14 @@ Service: `lib/modules/customer/services/customer_service.dart`
 
 | Endpoint | Service method | Purpose |
 | --- | --- | --- |
-| `GET /api/tailors?category=&city=&rating=&price=` | `getTailors` | Search and filter tailors. |
+| `GET /api/tailors?category=&city=&rating=&price=&search=` | `getTailors` | Search and filter tailors. |
 | `GET /api/tailors/:id` | `getTailorById` | One tailor's public profile. |
-| `GET /api/orders?customerId=` | `getMyOrders` | The customer's orders. |
+| `GET /api/orders` | `getMyOrders` | The customer's orders. |
 | `POST /api/orders` | `placeOrder` | Place an order. |
-| `PUT /api/orders/:id/delivery-schedule` | `setDeliverySchedule` | Choose pickup and delivery dates and time slots. |
+| `PUT /api/orders/:id/delivery-schedule` | `setDeliverySchedule` | Choose a delivery date and time slot. |
 | `POST /api/payments` | `makePayment` | Pay for an order. |
 | `POST /api/reviews` | `submitReview` | Rate a tailor. |
-| `GET /api/notifications?userId=` | `getNotifications` | The user's notifications. |
+| `GET /api/notifications` | `getNotifications` | The user's notifications. |
 | `GET /api/garments/pricing` | `getGarmentPricing` | Garment price list. |
 
 #### Tailor
@@ -112,27 +112,12 @@ Service: `lib/modules/tailor/services/tailor_service.dart`
 
 | Endpoint | Service method | Purpose |
 | --- | --- | --- |
-| `GET /api/orders?tailorId=&status=` | `getOrders` | The tailor's orders, optionally by status. |
+| `GET /api/orders?status=` | `getOrders` | The tailor's orders, optionally by status. |
 | `PUT /api/orders/:id/accept` | `acceptOrder` | Accept a pending order. |
 | `PUT /api/orders/:id/reject` | `rejectOrder` | Reject a pending order. |
-| `PUT /api/orders/:id/status` | `updateOrderStatus` | Move an order to its next status. |
+| `PUT /api/orders/:id/status` | `updateOrderStatus` | Move an order forward: `inProgress`, `qualityCheck`, `readyForDelivery`, then `delivered` once the customer has it. |
 | `POST /api/orders/:id/delivery-request` | `sendDeliveryRequest` | Ask the customer to schedule delivery. |
 | `GET /api/tailors/:id/earnings` | `getEarnings` | Earnings totals and monthly chart. |
-| `POST /api/riders` | `addRider` | Add a rider under the tailor. |
-| `PUT /api/riders/:id/verify-pickup` | `verifyRiderPickup` | Confirm the rider who collects an order. |
-
-#### Rider
-
-Service: `lib/modules/rider/services/rider_service.dart`
-
-| Endpoint | Service method | Purpose |
-| --- | --- | --- |
-| `GET /api/riders/:id/deliveries` | `getAssignedDeliveries` | Deliveries assigned to the rider. |
-| `PUT /api/deliveries/:id/verify-pickup` | `verifyPickup` | Verify pickup with the tailor's code. |
-| `POST /api/deliveries/:id/proof` | `uploadDeliveryProof` | Upload a delivery proof photo. |
-| `PUT /api/deliveries/:id/verify-customer-slip` | `verifyCustomerSlip` | Close the delivery with the code on the customer's slip. |
-| `POST /api/deliveries/:id/report-issue` | `reportIssue` | Report a problem with a delivery. |
-| `GET /api/riders/:id/earnings` | `getEarnings` | Earnings totals and delivery counts. |
 
 ### 3.2 Endpoints added by this contract
 
@@ -141,8 +126,8 @@ Three services are new and sit in `lib/core/services/` because more than one rol
 | Endpoint | Service method | Screen that needs it |
 | --- | --- | --- |
 | `POST /api/auth/reset-password` | `AuthService.resetPassword` | Reset password |
-| `GET /api/users/me` | `AuthService.getProfile` | Customer profile, rider profile |
-| `PUT /api/users/me` | `AuthService.updateProfile` | Customer profile, rider profile |
+| `GET /api/users/me` | `AuthService.getProfile` | Customer profile, tailor profile |
+| `PUT /api/users/me` | `AuthService.updateProfile` | Customer profile, tailor profile |
 | `PUT /api/tailors/:id` | `TailorService.updateProfile` | Tailor profile |
 | `GET /api/tailors/:id/portfolio` | `TailorService.getPortfolio` | Tailor profile |
 | `POST /api/tailors/:id/portfolio` | `TailorService.addPortfolioSample` | Tailor profile |
@@ -171,20 +156,18 @@ Three services are new and sit in `lib/core/services/` because more than one rol
 | `POST /api/ai/designs/:id/send` | `CustomerService.sendDesignToTailor` | AI design studio |
 | `POST /api/ai/try-on` | `CustomerService.generateTryOn` | Virtual try-on |
 | `PUT /api/ai/try-on/:id/save` | `CustomerService.saveTryOn` | Virtual try-on |
-| `GET /api/payout-accounts` | `PayoutService.getPayoutAccounts` | Tailor payment, rider payment |
-| `POST /api/payout-accounts` | `PayoutService.addPayoutAccount` | Tailor payment, rider payment |
-| `PUT /api/payout-accounts/:id/default` | `PayoutService.setDefaultPayoutAccount` | Tailor payment, rider payment |
-| `DELETE /api/payout-accounts/:id` | `PayoutService.removePayoutAccount` | Tailor payment, rider payment |
+| `GET /api/payout-accounts` | `PayoutService.getPayoutAccounts` | Tailor payment |
+| `POST /api/payout-accounts` | `PayoutService.addPayoutAccount` | Tailor payment |
+| `PUT /api/payout-accounts/:id/default` | `PayoutService.setDefaultPayoutAccount` | Tailor payment |
+| `DELETE /api/payout-accounts/:id` | `PayoutService.removePayoutAccount` | Tailor payment |
 | `GET /api/withdrawals` | `PayoutService.getWithdrawals` | Tailor payment |
-| `POST /api/withdrawals` | `PayoutService.requestWithdrawal` | Tailor earnings, rider earnings, live stream |
+| `POST /api/withdrawals` | `PayoutService.requestWithdrawal` | Tailor earnings, live stream |
 | `GET /api/conversations` | `ChatService.getConversations` | Chat tab for customers and tailors |
 | `GET /api/orders/:id/messages` | `ChatService.getMessages` | Chat |
 | `POST /api/orders/:id/messages` | `ChatService.sendMessage` | Chat |
 | `PUT /api/orders/:id/messages/read` | `ChatService.markMessagesRead` | Chat |
-| `PUT /api/notifications/:id/read` | `NotificationService.markRead` | Tailor notifications, rider notifications |
+| `PUT /api/notifications/:id/read` | `NotificationService.markRead` | Tailor notifications |
 | `PUT /api/notifications/read-all` | `NotificationService.markAllRead` | All three notification screens |
-| `GET /api/riders/:id` | `RiderService.getProfile` | Rider profile |
-| `PUT /api/riders/:id/availability` | `RiderService.setAvailability` | Rider dashboard |
 | `POST /api/streams` | `TailorService.startStream` | Live stream |
 | `GET /api/streams/:id` | `TailorService.getStream` | Live stream |
 | `GET /api/streams/:id/messages` | `TailorService.getStreamMessages` | Live stream |
@@ -570,7 +553,7 @@ No body. Returns the result with `is_saved` true. Share uses the phone's share s
 
 ### 3.12 Payout accounts and withdrawals
 
-For tailors and riders.
+For tailors.
 
 **`GET /api/payout-accounts`**
 
@@ -697,7 +680,7 @@ No body. Marks every message addressed to the signed-in user as read. Returns `2
 
 ### 3.14 Notifications
 
-`NotificationService.getNotifications` calls the existing `GET /api/notifications` without `userId`. The tailor and rider notification screens need it too, because they build their lists locally today.
+`NotificationService.getNotifications` calls the existing `GET /api/notifications` without `userId`. The tailor notifications screen uses it too.
 
 ```json
 [
@@ -719,38 +702,6 @@ No body. Returns `204`.
 **`PUT /api/notifications/read-all`**
 
 No body. Returns `204`.
-
-### 3.15 Rider
-
-**`GET /api/riders/:id`**
-
-```json
-{
-  "id": "R001",
-  "name": "Ali Raza",
-  "phone": "0304-5678901",
-  "city": "Lahore",
-  "assigned_tailor_id": "T001",
-  "assigned_tailor_name": "Sana's Couture",
-  "is_verified": true,
-  "is_available": true,
-  "total_deliveries": 156,
-  "month_deliveries": 28,
-  "rating": 4.8
-}
-```
-
-The rider changes name and phone with `PUT /api/users/me`.
-
-**`PUT /api/riders/:id/availability`**
-
-```json
-{
-  "is_available": false
-}
-```
-
-Returns `204`. A rider who is not available gets no new deliveries.
 
 ### 3.16 Live stream
 
@@ -858,7 +809,7 @@ The list the admin manages in settings (4.11), for the category chips on the bro
 
 ### 3.18 Endpoints added on 11 October 2026
 
-These serve the screens built on 11 October 2026. Each one is a mock-backed method with its endpoint as a TODO comment, and the new screens call these methods. Two services are new in `lib/core/services/`: `SupportService` for disputes and content reports, and `VerificationService` for tailor and rider documents.
+These serve the screens built on 11 October 2026. The new screens call these through the services. Two services are new in `lib/core/services/`: `SupportService` for disputes and content reports, and `VerificationService` for tailor documents.
 
 | Endpoint | Service method | Screen that needs it |
 | --- | --- | --- |
@@ -867,8 +818,6 @@ These serve the screens built on 11 October 2026. Each one is a mock-backed meth
 | `PUT /api/addresses/:id` | `CustomerService.updateAddress` | Addresses |
 | `PUT /api/addresses/:id/default` | `CustomerService.setDefaultAddress` | Addresses |
 | `DELETE /api/addresses/:id` | `CustomerService.removeAddress` | Addresses |
-| `GET /api/tailors/:id/riders` | `TailorService.getRiders` | My riders, order detail |
-| `PUT /api/orders/:id/rider` | `TailorService.assignRider` | Order detail |
 | `GET /api/verifications/me` | `VerificationService.getMyVerification` | Verification, tailor dashboard |
 | `POST /api/verifications` | `VerificationService.submitVerification` | Verification |
 | `POST /api/disputes` | `SupportService.raiseDispute` | Report a problem, for customers and tailors |
@@ -881,7 +830,6 @@ These serve the screens built on 11 October 2026. Each one is a mock-backed meth
 | `POST /api/streams/:id/like` | `CustomerService.likeStream` | Live stream viewer |
 | `POST /api/streams/:id/gifts` | `CustomerService.sendGift` | Live stream viewer |
 
-Two older endpoints changed. `POST /api/reviews` now takes the order (3.19), and `POST /api/riders` takes the rider's CNIC and city (3.21). The viewer screen also reads `GET /api/streams/:id/messages`, through `CustomerService.getStreamMessages`.
 
 ### 3.19 Reviews
 
@@ -952,40 +900,9 @@ No body. Returns the updated address. The previous default loses the flag.
 
 Returns `204`. `409` when it is the default address and the customer has other addresses.
 
-### 3.21 Riders of a tailor
-
-**`POST /api/riders`**
-
-Named in 3.1. The Add Rider screen sends:
-
-```json
-{
-  "name": "Usman Tariq",
-  "phone": "0306-9988776",
-  "cnic_number": "35202-1234567-1",
-  "city": "Lahore"
-}
-```
-
-Returns `201` with the rider object of 3.15 and `is_verified` false. The tailor comes from the token, and a verification request is created for the admin (4.5). The two ID photos join the request once uploads exist.
-
-**`GET /api/tailors/:id/riders`**
-
-The tailor's riders as an array of the rider object in 3.15, including riders still waiting for verification. Only that tailor may call it.
-
-**`PUT /api/orders/:id/rider`**
-
-```json
-{
-  "rider_id": "R001"
-}
-```
-
-Returns the updated order with `rider_id` and `rider_name`. `409` when the order is not `readyForDelivery`, or the rider is not verified, not available, or belongs to another tailor. The tailor can change the rider until the pickup is verified. The rider then finds the order in `GET /api/riders/:id/deliveries`.
-
 ### 3.22 Verification documents
 
-Tailors and riders send these, and the admin decides on the Verifications screen (4.5).
+Tailors send these, and the admin decides on the Verifications screen (4.5).
 
 **`GET /api/verifications/me`**
 
@@ -1011,7 +928,7 @@ The signed-in user's latest request. `404` when they have not sent one.
 
 **`POST /api/verifications`**
 
-Multipart form data: `cnic_number`, plus one file for each document type, named `cnicFront` and `cnicBack`, and `businessProof` for a tailor or `drivingLicence` for a rider. Returns `201` with the new request as `pending`. A new request replaces an open one. `400` when the CNIC is not 13 digits or a document is missing. The app has no image picker yet, so the mock sends file names only.
+Multipart form data: `cnic_number`, plus one file for each document type, named `cnicFront`, `cnicBack` and `businessProof`. Returns `201` with the new request as `pending`. A new request replaces an open one. `400` when the CNIC is not 13 digits or a document is missing. The app has no image picker yet, so the mock sends file names only.
 
 ### 3.23 Disputes and content reports
 
@@ -1121,12 +1038,9 @@ All 36 endpoints are called from `sewsmart_admin/lib/core/services/admin_service
 | `GET /api/admin/tailors` | `getTailors` | Tailors |
 | `PUT /api/admin/tailors/:id/status` | `suspendTailor` | Tailors |
 | `DELETE /api/admin/tailors/:id` | `removeTailor` | Tailors |
-| `GET /api/admin/riders` | `getRiders` | Riders |
-| `PUT /api/admin/riders/:id/status` | `suspendRider` | Riders |
-| `DELETE /api/admin/riders/:id` | `removeRider` | Riders |
-| `GET /api/admin/verifications` | `getPendingVerifications`, `getAllVerifications` | Verifications, Tailors, Riders, Dashboard |
-| `PUT /api/admin/verifications/:id/approve` | `approveVerification` | Verifications, Tailors, Riders, Dashboard |
-| `PUT /api/admin/verifications/:id/reject` | `rejectVerification` | Verifications, Tailors, Riders, Dashboard |
+| `GET /api/admin/verifications` | `getPendingVerifications`, `getAllVerifications` | Verifications, Tailors, Dashboard |
+| `PUT /api/admin/verifications/:id/approve` | `approveVerification` | Verifications, Tailors, Dashboard |
+| `PUT /api/admin/verifications/:id/reject` | `rejectVerification` | Verifications, Tailors, Dashboard |
 | `POST /api/admin/verifications/:id/request-documents` | `requestMoreDocuments` | Verifications, Tailors |
 | `GET /api/admin/orders` | `getAllOrders`, `getRecentOrders` | Orders, Dashboard |
 | `PUT /api/admin/orders/:id/cancel` | `cancelOrder` | Orders |
@@ -1207,7 +1121,6 @@ Response `200`:
   "active_orders": 142,
   "pending_verifications": 7,
   "registered_tailors": 312,
-  "active_riders": 89,
   "open_disputes": 4,
   "this_month_revenue": 184200,
   "last_month_revenue": 162500,
@@ -1217,13 +1130,12 @@ Response `200`:
 
 | Field | Meaning |
 | --- | --- |
-| `total_users` | All customer, tailor and rider accounts |
+| `total_users` | All customer and tailor accounts |
 | `total_orders` | All orders ever placed |
 | `total_revenue` | Sum of `completed` payments, before commission |
 | `active_orders` | Orders that are `accepted`, `inProgress`, `qualityCheck` or `readyForDelivery` |
 | `pending_verifications` | Verification requests with status `pending` |
 | `registered_tailors` | Tailor accounts |
-| `active_riders` | Rider accounts with status `active` |
 | `open_disputes` | Disputes with status `open` |
 | `this_month_revenue`, `last_month_revenue` | `total_revenue` limited to the current and the previous calendar month |
 | `average_tailor_rating` | Average rating across tailors that have at least one review, to one decimal |
@@ -1261,7 +1173,7 @@ Response `200`:
 
 The Recent Orders card uses `GET /api/admin/orders?limit=5`, described in 4.6.
 
-### 4.4 Customers, tailors and riders
+### 4.4 Customers and tailors
 
 The three lists follow one pattern. Each has its own endpoint because the rows carry different fields.
 
@@ -1309,27 +1221,7 @@ The three lists follow one pattern. Each has its own endpoint because the rows c
 ]
 ```
 
-**`GET /api/admin/riders?status=`**
-
-```json
-[
-  {
-    "id": "ri001",
-    "name": "Ali Hassan",
-    "phone": "+92-302-1234567",
-    "city": "Lahore",
-    "assigned_tailor_id": "ta001",
-    "assigned_tailor_name": "Noor Stitching Studio",
-    "status": "active",
-    "is_verified": true,
-    "created_at": "2024-01-20T00:00:00.000Z",
-    "total_deliveries": 234,
-    "rating": 4.7
-  }
-]
-```
-
-**`PUT /api/admin/users/:id/status`**, **`PUT /api/admin/tailors/:id/status`**, **`PUT /api/admin/riders/:id/status`**
+**`PUT /api/admin/users/:id/status`**, **`PUT /api/admin/tailors/:id/status`**
 
 Request:
 
@@ -1341,13 +1233,12 @@ Request:
 
 Returns the updated object. The body carries the status you want, not a toggle, so a repeated request cannot undo itself. A suspended account cannot sign in.
 
-**`DELETE /api/admin/users/:id`**, **`DELETE /api/admin/tailors/:id`**, **`DELETE /api/admin/riders/:id`**
+**`DELETE /api/admin/users/:id`**, **`DELETE /api/admin/tailors/:id`**
 
 Returns `204`. Keep the account's orders, payments and reviews. Mark the account as deleted instead of removing the document, so order history and revenue totals stay correct.
 
 ### 4.5 Verifications
 
-A request is created by the mobile flows: when a tailor or rider registers, when a tailor adds a rider with `POST /api/riders`, and when a tailor or rider sends documents with `POST /api/verifications` (3.22). The admin API only reads requests and decides them.
 
 **`GET /api/admin/verifications?status=`**
 
@@ -1368,7 +1259,7 @@ A request is created by the mobile flows: when a tailor or rider registers, when
 ]
 ```
 
-`documents_submitted` is `true` when the role's extra document is on file: business proof for a tailor, driving licence for a rider.
+`documents_submitted` is `true` when the business proof is on file.
 
 **`PUT /api/admin/verifications/:id/approve`**
 
@@ -1658,7 +1549,6 @@ These parts of the admin panel are outside this draft, because the screen or the
 - The Export buttons. They only show a message.
 - A date picker for the Custom report range.
 - The search and notification icons in the top bar. Their handlers are empty.
-- The View buttons on the Tailors and Riders screens. Their handlers are empty, and the lists already return what a detail dialog would show.
 
 ## 5. Not designed yet
 
@@ -1667,17 +1557,16 @@ Every feature in both apps now has its endpoints named. These parts are still op
 | Open part | Why |
 | --- | --- |
 | Request and response details of the 29 endpoints in 3.1 | Only their methods and paths are fixed. Each needs the same detail as the newer endpoints before its backend work starts. |
-| File uploads | The portfolio and try-on endpoints take multipart form data, and so will the design reference on an order, the rider documents and the delivery proof. Where files are stored and their size limits are not decided. The app has no image picker yet. |
+| File uploads | The portfolio and try-on endpoints take multipart form data, the design reference on an order and the verification documents. They are JPEG or PNG images up to 5 MB, saved on the server in `uploads/` and served from `/uploads`. The apps pick them with the camera or gallery. |
 | Live video | Tailors and viewers have their endpoints (3.16 and 3.24). The video itself needs a streaming service (decision 12). |
 | Delivery address of an order | Customers keep addresses (3.20), but an order and its delivery schedule do not say which one to use. This draft delivers to the default address (decision 15). |
 | Saved try-on results | Results can be saved with `PUT /api/ai/try-on/:id/save`, but no endpoint lists them and no screen shows them. The try-on screen has to call `generateTryOn` first. |
 | Paying withdrawals | The mobile app can request a withdrawal, but no admin screen lists or pays them. |
 | Coupons | The app can validate a code, but no admin screen creates one. |
-| Rider issue reports | Riders send them with `POST /api/deliveries/:id/report-issue`, and no admin screen shows them. |
 | Live updates | Chat, notifications and stream numbers are read by asking again. Socket.IO can deliver them live later without changing these endpoints. |
 | Push notifications | Nothing registers a device for push yet. |
 
-The screens that were missing were built on 11 October 2026: Reset Password, Rate Your Tailor, Saved Designs, Addresses, Report a Problem (customer and tailor), reporting a review or a tailor profile, Live Now and the live stream viewer, My Riders with rider assignment on the order detail, and Verification for tailors and riders. The AI design studio opens from the customer home screen and has a tailor picker. Still without a screen: a list of saved try-on results.
+The screens that were missing were built on 11 October 2026: Reset Password, Rate Your Tailor, Saved Designs, Addresses, Report a Problem (customer and tailor), reporting a review or a tailor profile, Live Now and the live stream viewer, and Verification for tailors. The AI design studio opens from the customer home screen and has a tailor picker. Still without a screen: a list of saved try-on results.
 
 ## 6. Decisions to confirm
 
@@ -1688,7 +1577,6 @@ Each item states what this draft assumes. Change the draft if the team decides o
 3. **Garment categories.** The mobile app lists Bridal, Eastern, Western, Casual and Formal. Admin settings list Bridal, Eastern, Western, Casual and Children. This draft treats admin settings as the only list, and the mobile app reads it with `GET /api/categories`.
 4. **Refunds.** The resolve dialog has no amount field, so a `refund` resolution refunds the full dispute amount. Cancelling an order that is already paid does not refund it automatically.
 5. **Revenue.** Every revenue figure is the gross amount customers paid, as the Payments screen calculates it today, not the commission the platform earned.
-6. **Whose data.** Several mobile endpoints take a user ID from the app, such as `?customerId=`, `?userId=` and `/riders/:id/earnings`. The backend should read the user from the token and check the ID against it, so one user cannot read another user's data.
 7. **Reports against a profile.** `remove` is defined for designs and reviews only. What it does to a reported profile is open.
 8. **Cash on delivery.** The payment methods screen lets a customer save Cash on Delivery, but the payment screen and the `PaymentMethod` enum do not offer it. This draft allows `cashOnDelivery` as a saved method only, so an order cannot be paid that way yet.
 9. **Price lists.** `GET /api/garments/pricing` is one shared list, while each tailor edits their own list. This draft treats the tailor's own list as the real one, so the place order and tailor profile screens should load `GET /api/tailors/:id/garments`.
@@ -1697,7 +1585,6 @@ Each item states what this draft assumes. Change the draft if the team decides o
 12. **Live video.** The stream endpoints carry the title, the numbers and the chat. The video needs a streaming service, and the response to `POST /api/streams` will have to carry that service's channel and token once one is chosen.
 13. **Password length.** The register screen accepts 4 characters, and this draft asks for 8 on the admin password. One rule for both would be simpler.
 14. **One review per order.** A customer reviews each delivered or completed order once, and cannot edit it afterwards.
-15. **Delivery address.** Riders deliver to the customer's default address. The delivery schedule call does not choose an address yet.
-16. **Rider assignment.** The tailor assigns one of their own verified, available riders to an order that is ready for delivery, and can change the rider until the pickup is verified.
+15. **Delivery address.** The tailor delivers to the customer's default address. The delivery schedule call does not choose an address yet.
 17. **Gifts.** A gift is charged to the viewer's default payment method when it is sent and is not refunded.
 18. **Reset code.** The reset email shows the token as a code as well as a link, because the app does not open links yet.

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -29,14 +30,19 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final data = await _service.getUsers();
-    if (mounted) {
-      setState(() {
-        _users = data;
-        _filtered = data;
-        _loading = false;
-      });
+    try {
+      final data = await _service.getUsers();
+      if (mounted) {
+        setState(() {
+          _users = data;
+          _filtered = data;
+        });
+        _applyFilters();
+      }
+    } on AdminApiException {
+      // AdminApi already showed the message.
     }
+    if (mounted) setState(() => _loading = false);
   }
 
   void _applyFilters() {
@@ -55,7 +61,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
 
   Future<void> _toggleStatus(AdminUser user) async {
     setState(() => _processing.add(user.id));
-    await _service.suspendUser(user.id);
+    final ok = await _service.suspendUser(user.id, suspend: user.status == 'Active');
+    if (!ok) {
+      if (mounted) setState(() => _processing.remove(user.id));
+      return;
+    }
     await _load();
     if (mounted) {
       setState(() => _processing.remove(user.id));
@@ -149,17 +159,6 @@ class _CustomersScreenState extends State<CustomersScreen> {
             badge: AdminBadge(
               label: '${_filtered.length}',
               color: AdminColors.customerColor,
-            ),
-            action: AdminButton(
-              label: 'Export',
-              icon: Icons.download_rounded,
-              isSmall: true,
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Exported!', style: GoogleFonts.poppins()),
-                  backgroundColor: AdminColors.success,
-                ),
-              ),
             ),
           ),
           const SizedBox(height: 20),
@@ -338,8 +337,7 @@ class _CustomersScreenState extends State<CustomersScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await _service.deleteUser(user.id);
-              _load();
+              if (await _service.deleteUser(user.id)) _load();
             },
             style: ElevatedButton.styleFrom(
                 backgroundColor: AdminColors.error,
