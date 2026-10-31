@@ -36,6 +36,8 @@ flutter run                                              # Android emulator reac
 flutter run --dart-define=API_URL=http://192.168.1.5:4000   # a real phone, using your computer's address
 ```
 
+**Install the app on a phone.** Run the GitHub workflow *Build Android APK* (Actions tab, Run workflow) and download `sewsmart-apk` from the finished run, or build it yourself with `flutter build apk --release`. The file is `build/app/outputs/flutter-apk/app-release.apk`. After installing it, tap **Server** at the bottom of the login screen and enter where the backend runs, for example `http://192.168.1.5:4000` for a laptop on the same Wi-Fi or hotspot. The app checks the address before it keeps it.
+
 **3. The admin panel**
 
 ```bash

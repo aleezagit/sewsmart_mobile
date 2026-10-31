@@ -9,6 +9,7 @@ import 'package:http/http.dart' as http;
 import 'package:http_parser/http_parser.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 // A failed request. [message] comes from the backend's `{ "message": "..." }`
 // and is written to be shown to the user as it is.
@@ -28,14 +29,48 @@ class ApiClient {
   factory ApiClient() => _instance;
   ApiClient._();
 
-  // Set it when building: flutter run --dart-define=API_URL=https://api.example.com
-  // Without it, a backend on this computer: the Android emulator reaches the
-  // host as 10.0.2.2, everything else as localhost.
+  // The address of the backend. The user can change it on the login screen,
+  // which is how one installed app is pointed at a laptop or a server. Without
+  // that, the address given when building (flutter run
+  // --dart-define=API_URL=https://api.example.com) is used, and without both, a
+  // backend on this computer: the Android emulator reaches the host as
+  // 10.0.2.2, everything else as localhost.
   static const String _configuredUrl = String.fromEnvironment('API_URL');
-  static String get baseUrl {
+  static const _serverKey = 'server_url';
+  String? _server;
+
+  String get defaultUrl {
     if (_configuredUrl.isNotEmpty) return _configuredUrl.replaceAll(RegExp(r'/$'), '');
     final isAndroid = !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     return isAndroid ? 'http://10.0.2.2:4000' : 'http://localhost:4000';
+  }
+
+  String get baseUrl => _server ?? defaultUrl;
+
+  // Points the app at another backend, after checking that it answers. Throws
+  // an ApiException, and keeps the old address, when it does not.
+  Future<void> useServer(String input) async {
+    var url = input.trim().replaceAll(RegExp(r'/+$'), '');
+    if (url.isEmpty) throw const ApiException(0, 'Enter the server address.');
+    if (!url.contains('://')) url = 'http://$url';
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty || !uri.scheme.startsWith('http')) {
+      throw const ApiException(0, 'Enter an address like http://192.168.1.5:4000');
+    }
+    try {
+      final response = await _http.get(Uri.parse('$url/api/health')).timeout(const Duration(seconds: 8));
+      if (response.statusCode != 200) throw Exception();
+    } catch (_) {
+      throw ApiException(0, 'SewSmart did not answer at $url. Check the address and that the server is running.');
+    }
+    _server = url;
+    await (await SharedPreferences.getInstance()).setString(_serverKey, url);
+  }
+
+  // Goes back to the address given when the app was built.
+  Future<void> resetServer() async {
+    _server = null;
+    await (await SharedPreferences.getInstance()).remove(_serverKey);
   }
 
   static const _tokenKey = 'auth_token';
@@ -52,9 +87,10 @@ class ApiClient {
 
   bool get hasToken => _token != null;
 
-  // Reads the token saved by the last sign-in. If the secure storage cannot
-  // be read, the user simply signs in again.
-  Future<void> restoreToken() async {
+  // Reads what the last run saved: the backend address and the sign-in token.
+  // If the secure storage cannot be read, the user simply signs in again.
+  Future<void> restore() async {
+    _server = (await SharedPreferences.getInstance()).getString(_serverKey);
     try {
       _token = await _storage.read(key: _tokenKey);
     } catch (_) {

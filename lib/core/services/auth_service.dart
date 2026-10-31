@@ -29,7 +29,7 @@ class AuthService {
   // Signs the user back in with the token saved by the last sign-in. Returns
   // null when there is none or it has expired.
   Future<UserModel?> restoreSession() async {
-    await _api.restoreToken();
+    await _api.restore();
     if (!_api.hasToken) return null;
     try {
       _currentUser = UserModel.fromJson(objectOf(await _api.get('/users/me')));

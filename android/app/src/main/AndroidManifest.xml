@@ -2,7 +2,12 @@
     <!-- Release builds need this to download the Poppins font (google_fonts)
          and to reach the backend. Debug builds get it from src/debug. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- The app talks to a server the user chooses, such as a laptop on the same
+         Wi-Fi at http://192.168.x.x. Android blocks plain http in release builds
+         unless this is set. Use an https server and set it to false for a
+         public release. -->
     <application
+        android:usesCleartextTraffic="true"
         android:label="SewSmart"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">

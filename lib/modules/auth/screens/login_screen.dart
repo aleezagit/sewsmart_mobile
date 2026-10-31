@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/services/auth_service.dart';
@@ -234,7 +235,18 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 20),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _changeServer,
+                      icon: Icon(Icons.dns_rounded, size: 15, color: AppColors.textMuted),
+                      label: Text(
+                        'Server: ${Uri.parse(ApiClient().baseUrl).authority}',
+                        style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -242,6 +254,65 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         ),
       ),
     );
+  }
+
+  // Lets the user point the app at their own backend, such as a laptop on the
+  // same Wi-Fi. The address is checked before it is kept.
+  Future<void> _changeServer() async {
+    final ctrl = TextEditingController(text: ApiClient().baseUrl);
+    String? error;
+    bool checking = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.card,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Server address',
+              style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Where the SewSmart server runs, for example http://192.168.1.5:4000',
+                  style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12)),
+              const SizedBox(height: 12),
+              AppTextField(hint: 'http://192.168.1.5:4000', icon: Icons.dns_rounded, ctrl: ctrl, keyboard: TextInputType.url),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!, style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12)),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await ApiClient().resetServer();
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: Text('Reset', style: GoogleFonts.poppins(color: AppColors.textMuted)),
+            ),
+            TextButton(
+              onPressed: checking
+                  ? null
+                  : () async {
+                      setDialogState(() { checking = true; error = null; });
+                      try {
+                        await ApiClient().useServer(ctrl.text);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      } on ApiException catch (e) {
+                        setDialogState(() { checking = false; error = e.message; });
+                      }
+                    },
+              child: Text(checking ? 'Checking...' : 'Save',
+                  style: GoogleFonts.poppins(color: AppColors.primaryLight, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
+      ),
+    );
+    ctrl.dispose();
+    if (mounted) setState(() {});
   }
 
   List<Color> _roleGradient() {
