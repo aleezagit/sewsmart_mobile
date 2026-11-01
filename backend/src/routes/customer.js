@@ -8,11 +8,14 @@ const { nextId } = require('../utils/ids');
 const { badRequest, notFound, conflict } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
 const { checkCoupon } = require('../services/coupons');
+const banks = require('../data/banks');
 
 // Customer-only features: coupons, saved measurements, payment methods,
 // addresses and the wishlist.
 const router = express.Router();
 const customerOnly = requireRole('customer');
+
+router.get('/banks', (req, res) => res.json(banks));
 
 router.get('/categories', async (req, res) => {
   res.json((await Settings.current()).categories);
@@ -60,22 +63,28 @@ router.get('/payment-methods', customerOnly, async (req, res) => {
 router.post('/payment-methods', customerOnly, async (req, res) => {
   const type = v.oneOf(req.body.type, 'Type', PaymentMethod.TYPES);
   let detail = '';
+  let bankName = null;
   if (type === 'card') {
     const digits = String(req.body.account_number || '').replace(/\D/g, '');
     if (digits.length < 12 || digits.length > 19) throw badRequest('Enter a valid card number');
     detail = digits.slice(-4);
   } else if (type === 'jazzCash' || type === 'easyPaisa') {
     detail = v.mobile(req.body.account_number, 'Mobile account number');
-  } else if (type === 'bank') {
-    detail = v.text(req.body.account_number, 'Account number', { max: 34 });
+  } else {
+    // A bank account: the bank from the list, and the account number or the IBAN.
+    bankName = v.oneOf(req.body.bank_name, 'Bank', banks);
+    const hasIban = String(req.body.iban || '').trim() !== '';
+    const number = hasIban ? v.iban(req.body.iban) : v.accountNumber(req.body.account_number);
+    detail = `${bankName} ••••${number.slice(-4)}`;
   }
   const owner = { customer_id: req.user.id };
   const method = await PaymentMethod.create({
     _id: await nextId('PM'),
     ...owner,
     type,
+    bank_name: bankName,
     detail,
-    account_name: v.text(req.body.account_name, 'Account name', { required: type !== 'cashOnDelivery', max: 100 }),
+    account_name: v.text(req.body.account_name, 'Account name', { max: 100 }),
     is_default: !(await PaymentMethod.exists(owner)),
   });
   res.status(201).json(method);

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../../../core/models/app_models.dart';
+import '../../../core/services/bank_service.dart';
 import '../../../core/services/payout_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validators.dart';
@@ -251,7 +252,9 @@ class _AddPayoutSheetState extends State<_AddPayoutSheet> {
   String _type = 'jazzCash';
   final _numCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
-  final _bankCtrl = TextEditingController();
+  // The bank is chosen from the server's list.
+  List<String> _banks = [];
+  String? _bank;
   final _ibanCtrl = TextEditingController();
   String? _error;
   bool _saving = false;
@@ -262,9 +265,23 @@ class _AddPayoutSheetState extends State<_AddPayoutSheet> {
   void dispose() {
     _numCtrl.dispose();
     _nameCtrl.dispose();
-    _bankCtrl.dispose();
     _ibanCtrl.dispose();
     super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBanks();
+  }
+
+  Future<void> _loadBanks() async {
+    try {
+      final banks = await BankService().getBanks();
+      if (mounted) setState(() => _banks = banks);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
   }
 
   Future<void> _save() async {
@@ -272,7 +289,7 @@ class _AddPayoutSheetState extends State<_AddPayoutSheet> {
       isBank: _isBank,
       number: _numCtrl.text,
       holderName: _nameCtrl.text,
-      bankName: _bankCtrl.text,
+      bankName: _bank ?? '',
       iban: _ibanCtrl.text,
     );
     if (problem != null) {
@@ -285,7 +302,7 @@ class _AddPayoutSheetState extends State<_AddPayoutSheet> {
         type: _type,
         accountNumber: _numCtrl.text.trim(),
         accountName: _nameCtrl.text.trim(),
-        bankName: _isBank ? _bankCtrl.text.trim() : null,
+        bankName: _isBank ? _bank : null,
         iban: _isBank && _ibanCtrl.text.trim().isNotEmpty ? _ibanCtrl.text.replaceAll(' ', '').toUpperCase() : null,
       );
       if (!mounted) return;
@@ -364,7 +381,18 @@ class _AddPayoutSheetState extends State<_AddPayoutSheet> {
             ),
             const SizedBox(height: 18),
             if (_isBank) ...[
-              AppTextField(hint: 'Bank Name (e.g. HBL, Meezan, MCB)', icon: Icons.account_balance_rounded, ctrl: _bankCtrl),
+              DropdownButtonFormField<String>(
+                initialValue: _bank,
+                isExpanded: true,
+                dropdownColor: AppColors.cardAlt,
+                decoration: InputDecoration(
+                  hintText: _banks.isEmpty ? 'Loading banks...' : 'Select your bank',
+                  prefixIcon: Icon(Icons.account_balance_rounded, color: AppColors.textMuted, size: 20),
+                ),
+                style: GoogleFonts.poppins(color: AppColors.textPrimary, fontSize: 14),
+                items: [for (final bank in _banks) DropdownMenuItem(value: bank, child: Text(bank))],
+                onChanged: (bank) => setState(() { _bank = bank; _error = null; }),
+              ),
               const SizedBox(height: 10),
               AppTextField(hint: 'Account Number', icon: Icons.tag_rounded, ctrl: _numCtrl, keyboard: TextInputType.number),
               const SizedBox(height: 10),

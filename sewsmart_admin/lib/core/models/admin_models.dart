@@ -1,6 +1,6 @@
 // The admin panel's models. The API sends lower camelCase values such as
 // `inProgress` and `jazzCash` (docs/API.md, section 2), and the screens show
-// labels such as In Progress and JazzCash, so fromJson converts them here.
+// labels such as In Progress and Paid, so fromJson converts them here.
 
 // "active" → "Active".
 String _label(dynamic value) {
@@ -269,7 +269,6 @@ class AdminPayment {
   final String customerName;
   final String tailorName;
   final double amount;
-  final String method;
   final String status;
   final String date;
 
@@ -280,13 +279,11 @@ class AdminPayment {
     required this.customerName,
     required this.tailorName,
     required this.amount,
-    required this.method,
     required this.status,
     required this.date,
   });
 
-  static const methodLabels = {'jazzCash': 'JazzCash', 'easyPaisa': 'EasyPaisa', 'bank': 'Bank', 'card': 'Card'};
-  static const statusLabels = {'pending': 'Processing', 'completed': 'Paid', 'refunded': 'Refunded', 'failed': 'Failed'};
+  static const statusLabels = {'pending': 'Processing', 'completed': 'Paid', 'refunded': 'Refunded'};
 
   factory AdminPayment.fromJson(Map<String, dynamic> j) => AdminPayment(
     id: j['id'],
@@ -295,7 +292,6 @@ class AdminPayment {
     customerName: j['customer_name'] ?? '',
     tailorName: j['tailor_name'] ?? '',
     amount: _number(j['amount']),
-    method: methodLabels[j['method']] ?? _label(j['method']),
     status: statusLabels[j['status']] ?? _label(j['status']),
     date: _day(j['created_at']),
   );

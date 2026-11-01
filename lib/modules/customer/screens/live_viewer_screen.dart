@@ -245,7 +245,7 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
               style: GoogleFonts.poppins(color: DarkColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16),
             ),
             Text(
-              'Gifts go to $_tailorName and are charged to your default payment method.',
+              'Gifts go to $_tailorName and are paid from your wallet.',
               style: GoogleFonts.poppins(color: DarkColors.textMuted, fontSize: 11),
             ),
             const SizedBox(height: 16),
@@ -301,7 +301,7 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
           style: GoogleFonts.poppins(color: DarkColors.textPrimary, fontWeight: FontWeight.w600),
         ),
         content: Text(
-          'Rs ${gift.amount} will be charged to your default payment method and sent to $_tailorName.',
+          'Rs ${gift.amount} will be taken from your wallet and sent to $_tailorName.',
           style: GoogleFonts.poppins(color: DarkColors.textSecondary, fontSize: 13),
         ),
         actions: [

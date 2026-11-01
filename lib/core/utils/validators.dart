@@ -38,7 +38,7 @@ class Validators {
     String iban = '',
   }) {
     if (isBank) {
-      if (bankName.trim().isEmpty) return 'Enter the bank name';
+      if (bankName.trim().isEmpty) return 'Choose your bank';
       if (digitsOnly(number).length < 8) return 'Enter the full account number';
       if (iban.trim().isNotEmpty && !isIban(iban)) {
         return 'Enter a valid IBAN, e.g. PK36HABB0000123456789012';

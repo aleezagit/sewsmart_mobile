@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { setup, teardown, signUp, adminSession, addGarment } = require('./helpers');
+const { setup, teardown, signUp, adminSession, addGarment, addMoney } = require('./helpers');
 
 let api;
 let admin;
@@ -50,7 +50,8 @@ test('disputes, reports and stats', async () => {
   const tailor = await signUp(api, 'tailor');
   await addGarment(tailor.user.id, 'Kurta', 1200);
   const { body: order } = await api.post('/api/orders').set(customer.auth).send({ tailor_id: tailor.user.id, garment_type: 'Kurta', measurements: 'M' }).expect(201);
-  await api.post('/api/payments').set(customer.auth).send({ order_id: order.id, method: 'easyPaisa' }).expect(201);
+  await addMoney(api, customer, 5000);
+  await api.post('/api/payments').set(customer.auth).send({ order_id: order.id }).expect(201);
 
   await api.post('/api/disputes').set(customer.auth).send({ order_id: order.id, reason: 'Late delivery', details: 'too short' }).expect(400);
   const { body: dispute } = await api.post('/api/disputes').set(customer.auth)

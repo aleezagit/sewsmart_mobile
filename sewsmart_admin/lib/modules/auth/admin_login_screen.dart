@@ -122,7 +122,7 @@ class _AdminLoginScreenState extends State<AdminLoginScreen> {
                     // Email
                     AdminTextField(
                       label: 'Email Address',
-                      hint: 'admin@sewsmart.com',
+                      hint: 'Admin email',
                       controller: _emailCtrl,
                       prefixIcon: Icons.email_outlined,
                       keyboardType: TextInputType.emailAddress,

@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Payment = require('../models/Payment');
 const { notFound, forbidden } = require('../utils/errors');
+const { credit } = require('./wallet');
 
 // Loads an order that the signed-in user takes part in: its customer or its tailor.
 async function findOrderFor(user, id, roles = ['customer', 'tailor']) {
@@ -17,9 +18,16 @@ function setStatus(order, status) {
   order.status_history.push({ status, at: new Date() });
 }
 
-// Returns the money of an order that is rejected or cancelled before work starts.
+// Returns the money of an order that is rejected or cancelled to the
+// customer's wallet. A payment is refunded once, even if this runs twice.
 async function refundOrder(orderId) {
-  await Payment.updateMany({ order_id: orderId, status: 'completed' }, { status: 'refunded' });
+  const payments = await Payment.find({ order_id: orderId, status: 'completed' });
+  for (const payment of payments) {
+    const claimed = await Payment.findOneAndUpdate({ _id: payment.id, status: 'completed' }, { status: 'refunded' });
+    if (claimed) {
+      await credit(payment.customer_id, payment.amount, { type: 'refund', order_id: orderId, description: `Refund for ${orderId}` });
+    }
+  }
 }
 
 module.exports = { findOrderFor, setStatus, refundOrder };

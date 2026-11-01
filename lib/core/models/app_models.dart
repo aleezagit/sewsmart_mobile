@@ -91,30 +91,58 @@ class OrderModel {
 }
 
 // ── Payment ───────────────────────────────────────────────────────────────────
-enum PaymentStatus { pending, completed, failed, refunded }
-enum PaymentMethod { jazzCash, easyPaisa, bank, card }
-
+// An order paid from the wallet. A payment is always completed until the order
+// is refunded, so there is no status here.
 class PaymentModel {
-  final String id, orderId, customerId, tailorId;
+  final String id, orderId;
   final double amount;
-  final PaymentStatus status;
-  final PaymentMethod method;
   final DateTime createdAt;
   final String? transactionId;
 
   const PaymentModel({
-    required this.id, required this.orderId, required this.customerId,
-    required this.tailorId, required this.amount, required this.status,
-    required this.method, required this.createdAt, this.transactionId,
+    required this.id, required this.orderId, required this.amount,
+    required this.createdAt, this.transactionId,
   });
 
   factory PaymentModel.fromJson(Map<String, dynamic> j) => PaymentModel(
-    id: j['id'], orderId: j['order_id'], customerId: j['customer_id'],
-    tailorId: j['tailor_id'], amount: (j['amount'] as num).toDouble(),
-    status: PaymentStatus.values.byName(j['status']),
-    method: PaymentMethod.values.byName(j['method']),
+    id: j['id'], orderId: j['order_id'], amount: (j['amount'] as num).toDouble(),
     createdAt: DateTime.parse(j['created_at']).toLocal(),
     transactionId: j['transaction_id'],
+  );
+}
+
+// ── Wallet ────────────────────────────────────────────────────────────────────
+// What orders and gifts are paid from. amount is positive for money in and
+// negative for money out. type is topup, payment, refund or gift.
+class WalletTransaction {
+  final String id, type, description;
+  final double amount, balanceAfter;
+  final DateTime createdAt;
+
+  const WalletTransaction({
+    required this.id, required this.type, required this.description,
+    required this.amount, required this.balanceAfter, required this.createdAt,
+  });
+
+  factory WalletTransaction.fromJson(Map<String, dynamic> j) => WalletTransaction(
+    id: j['id'], type: j['type'], description: j['description'] ?? '',
+    amount: (j['amount'] as num).toDouble(),
+    balanceAfter: (j['balance_after'] as num).toDouble(),
+    createdAt: DateTime.parse(j['created_at']).toLocal(),
+  );
+}
+
+class WalletModel {
+  final double balance;
+  final List<WalletTransaction> transactions;
+
+  const WalletModel({required this.balance, required this.transactions});
+
+  factory WalletModel.fromJson(Map<String, dynamic> j) => WalletModel(
+    balance: (j['balance'] as num).toDouble(),
+    transactions: ((j['transactions'] ?? []) as List)
+        .map((t) => WalletTransaction.fromJson(Map<String, dynamic>.from(t as Map)))
+        .toList(),
   );
 }
 
@@ -317,7 +345,7 @@ class MeasurementModel {
 // ── Saved Payment Method ──────────────────────────────────────────────────────
 class SavedPaymentMethod {
   final String id;
-  final String type; // jazzCash, easyPaisa, bank, card, cashOnDelivery
+  final String type; // jazzCash, easyPaisa, bank, card
   final String detail, accountName;
   final bool isDefault;
 

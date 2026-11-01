@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { setup, teardown, signUp, addGarment, Design } = require('./helpers');
+const { setup, teardown, signUp, addGarment, addMoney, Design } = require('./helpers');
 
 let api;
 let customer;
@@ -22,7 +22,7 @@ test('saved measurements', async () => {
 test('payment methods and addresses keep one default', async () => {
   const first = await api.post('/api/payment-methods').set(customer.auth).send({ type: 'card', account_number: '4111 1111 1111 1234', account_name: 'Me' }).expect(201);
   assert.deepStrictEqual([first.body.detail, first.body.is_default], ['1234', true]);
-  const second = await api.post('/api/payment-methods').set(customer.auth).send({ type: 'cashOnDelivery' }).expect(201);
+  const second = await api.post('/api/payment-methods').set(customer.auth).send({ type: 'jazzCash', account_number: '0300-1234567', account_name: 'Me' }).expect(201);
   await api.delete(`/api/payment-methods/${first.body.id}`).set(customer.auth).expect(409);
   await api.put(`/api/payment-methods/${second.body.id}/default`).set(customer.auth).expect(200);
   await api.delete(`/api/payment-methods/${first.body.id}`).set(customer.auth).expect(204);
@@ -128,6 +128,39 @@ test('try-on sends both photos to the try-on service and saves its picture', asy
   }
 });
 
+test('a customer adds a bank account and puts money in the wallet', async () => {
+  const banks = await api.get('/api/banks').set(customer.auth).expect(200);
+  assert.ok(banks.body.includes('Meezan Bank'));
+  const wallet = await api.get('/api/wallet').set(customer.auth).expect(200);
+  assert.deepStrictEqual([wallet.body.balance, wallet.body.transactions.length], [0, 0]);
+
+  const account = { type: 'bank', bank_name: 'Meezan Bank', account_name: 'Hina Malik' };
+  await api.post('/api/payment-methods').set(customer.auth).send({ ...account, bank_name: 'Made Up Bank', account_number: '0123456789' }).expect(400);
+  await api.post('/api/payment-methods').set(customer.auth).send({ ...account, account_number: '12' }).expect(400);
+  await api.post('/api/payment-methods').set(customer.auth).send({ ...account }).expect(400);
+  const typo = await api.post('/api/payment-methods').set(customer.auth).send({ ...account, iban: 'PK36SCBL0000001123456703' }).expect(400);
+  assert.match(typo.body.message, /typing mistake/);
+  const saved = await api.post('/api/payment-methods').set(customer.auth).send({ ...account, iban: 'pk36 scbl 0000 0011 2345 6702' }).expect(201);
+  assert.deepStrictEqual([saved.body.bank_name, saved.body.detail], ['Meezan Bank', 'Meezan Bank ••••6702']);
+
+  await api.post('/api/wallet/top-up').set(customer.auth).send({ method_id: saved.body.id, amount: 50 }).expect(400);
+  await api.post('/api/wallet/top-up').set(customer.auth).send({ method_id: saved.body.id, amount: 250.5 }).expect(400);
+  await api.post('/api/wallet/top-up').set(customer.auth).send({ method_id: 'PM999', amount: 500 }).expect(404);
+  const topped = await api.post('/api/wallet/top-up').set(customer.auth).send({ method_id: saved.body.id, amount: 3000 }).expect(201);
+  assert.strictEqual(topped.body.balance, 3000);
+  assert.deepStrictEqual(
+    [topped.body.transactions[0].type, topped.body.transactions[0].amount, topped.body.transactions[0].balance_after],
+    ['topup', 3000, 3000],
+  );
+
+  // Another customer cannot use this account or see this wallet.
+  const other = await signUp(api, 'customer');
+  await api.post('/api/wallet/top-up').set(other.auth).send({ method_id: saved.body.id, amount: 500 }).expect(404);
+  assert.strictEqual((await api.get('/api/wallet').set(other.auth).expect(200)).body.balance, 0);
+  const tailor = await signUp(api, 'tailor');
+  await api.get('/api/wallet').set(tailor.auth).expect(403);
+});
+
 test('a tailor manages the profile, price list and portfolio', async () => {
   const tailor = await signUp(api, 'tailor');
   const other = await signUp(api, 'tailor');
@@ -166,8 +199,9 @@ test('live streams: start, watch, chat, gift and end', async () => {
   assert.strictEqual(joined.body.viewers, 1);
   await api.post(`/api/streams/${stream.id}/messages`).set(viewer.auth).send({ text: 'Beautiful!' }).expect(201);
   await api.post(`/api/streams/${stream.id}/like`).set(viewer.auth).expect(204);
-  await api.post(`/api/streams/${stream.id}/gifts`).set(viewer.auth).send({ gift: 'Rose' }).expect(409);
-  await api.post('/api/payment-methods').set(viewer.auth).send({ type: 'jazzCash', account_number: '03001234567', account_name: 'Fatima' }).expect(201);
+  const broke = await api.post(`/api/streams/${stream.id}/gifts`).set(viewer.auth).send({ gift: 'Rose' }).expect(409);
+  assert.match(broke.body.message, /Add Rs 50 to your wallet/);
+  await addMoney(api, viewer, 1000);
   await api.post(`/api/streams/${stream.id}/gifts`).set(viewer.auth).send({ gift: 'Rose' }).expect(204);
   await api.post(`/api/streams/${stream.id}/gifts`).set(viewer.auth).send({ gift: 'Rose' }).expect(204);
   await api.post(`/api/streams/${stream.id}/gifts`).set(viewer.auth).send({ gift: 'Crown' }).expect(204);

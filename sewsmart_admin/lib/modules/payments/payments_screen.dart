@@ -19,7 +19,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   List<AdminPayment> _filtered = [];
   PaymentSummary? _summary;
   bool _loading = true;
-  String _methodFilter = 'All';
   String _statusFilter = 'All';
 
   @override
@@ -51,9 +50,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
   void _applyFilters() {
     setState(() {
       _filtered = _payments.where((p) {
-        final matchMethod = _methodFilter == 'All' || p.method == _methodFilter;
         final matchStatus = _statusFilter == 'All' || p.status == _statusFilter;
-        return matchMethod && matchStatus;
+        return matchStatus;
       }).toList();
     });
   }
@@ -130,30 +128,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                   border: Border.all(color: AdminColors.border),
                 ),
                 child: DropdownButton<String>(
-                  value: _methodFilter,
-                  underline: const SizedBox(),
-                  hint: Text('Method', style: GoogleFonts.poppins(fontSize: 13)),
-                  style: GoogleFonts.poppins(fontSize: 13, color: AdminColors.text),
-                  items: ['All', 'JazzCash', 'EasyPaisa', 'Bank', 'Card']
-                      .map((m) => DropdownMenuItem(value: m, child: Text(m)))
-                      .toList(),
-                  onChanged: (v) {
-                    if (v != null) {
-                      _methodFilter = v;
-                      _applyFilters();
-                    }
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AdminColors.border),
-                ),
-                child: DropdownButton<String>(
                   value: _statusFilter,
                   underline: const SizedBox(),
                   style: GoogleFonts.poppins(fontSize: 13, color: AdminColors.text),
@@ -183,8 +157,8 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             child: Column(
               children: [
                 TableHeader(
-                  columns: const ['TXN ID', 'CUSTOMER', 'TAILOR', 'AMOUNT', 'METHOD', 'STATUS', 'DATE'],
-                  flexValues: const [1.5, 2, 2.5, 1.5, 1.5, 1.5, 1.5],
+                  columns: const ['TXN ID', 'CUSTOMER', 'TAILOR', 'AMOUNT', 'STATUS', 'DATE'],
+                  flexValues: const [1.5, 2, 2.5, 1.5, 1.5, 1.5],
                 ),
                 if (_loading)
                   const Padding(
@@ -213,11 +187,10 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
                                 overflow: TextOverflow.ellipsis),
                             Text('Rs. ${p.amount.toStringAsFixed(0)}',
                                 style: GoogleFonts.poppins(fontSize: 12, fontWeight: FontWeight.w600)),
-                            _MethodBadge(method: p.method),
                             statusBadge(p.status),
                             Text(p.date, style: GoogleFonts.poppins(fontSize: 11, color: AdminColors.textSecondary)),
                           ],
-                          flexValues: const [1.5, 2, 2.5, 1.5, 1.5, 1.5, 1.5],
+                          flexValues: const [1.5, 2, 2.5, 1.5, 1.5, 1.5],
                         ),
                         const Divider(height: 1, color: AdminColors.border),
                       ],
@@ -227,37 +200,6 @@ class _PaymentsScreenState extends State<PaymentsScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _MethodBadge extends StatelessWidget {
-  final String method;
-  const _MethodBadge({required this.method});
-
-  Color get _color {
-    switch (method) {
-      case 'JazzCash': return const Color(0xFFCC0000);
-      case 'EasyPaisa': return const Color(0xFF00A651);
-      case 'Bank': return AdminColors.primary;
-      case 'Card': return AdminColors.info;
-      default: return AdminColors.textSecondary;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: _color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(color: _color.withOpacity(0.3)),
-      ),
-      child: Text(
-        method,
-        style: GoogleFonts.poppins(fontSize: 11, color: _color, fontWeight: FontWeight.w500),
       ),
     );
   }

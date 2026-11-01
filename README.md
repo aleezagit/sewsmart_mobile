@@ -20,13 +20,15 @@ You need Node.js 20 or newer, MongoDB, and Flutter.
 
 ```bash
 cd backend
-cp .env.example .env        # then set JWT_SECRET and ADMIN_PASSWORD
+cp .env.example .env        # then set JWT_SECRET, ADMIN_EMAIL and ADMIN_PASSWORD
 npm install
 npm run seed                # creates the admin and demo data (add -- --reset to start over)
 npm start                   # http://localhost:4000
 ```
 
 The demo customers and tailors sign in with the password `sewsmart123`, for example `ayesha@email.com` (customer) and `sana@couture.com` (tailor). The admin signs in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`. Reset codes and OTP codes are printed in the server log until SMTP and an SMS provider are set up.
+
+Orders are paid from a **wallet**. A customer adds a bank account (the bank from a list, then the account number or IBAN), adds money to the wallet from it, and pays from the wallet. `ayesha@email.com` already has a bank account saved. `sara@email.com` has none, so use her to try the whole flow from the start. Adding money is a sandbox until a payment provider is connected: no real account is charged.
 
 **2. The mobile app**
 

@@ -28,6 +28,7 @@ function createApp() {
   app.use('/api/users', require('./routes/users'));
   app.use('/api/tailors', require('./routes/tailors'));
   app.use('/api/orders', require('./routes/orders'));
+  app.use('/api/wallet', requireRole('customer'), require('./routes/wallet'));
   app.use('/api/payments', requireRole('customer'), require('./routes/payments'));
   app.use('/api/reviews', requireRole('customer'), require('./routes/reviews'));
   app.use('/api/notifications', require('./routes/notifications'));

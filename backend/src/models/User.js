@@ -37,7 +37,9 @@ const userSchema = createSchema({
   tailor: tailorSchema,
   measurements: measurementSchema,
   wishlist: { type: [String], default: [] },
-}, { hidden: ['password_hash', 'token_version', 'tailor', 'measurements', 'wishlist', 'deleted_at', 'status'] });
+  // A customer's wallet, in PKR. Changes go through services/wallet.js.
+  wallet_balance: { type: Number, default: 0, min: 0 },
+}, { hidden: ['password_hash', 'token_version', 'tailor', 'measurements', 'wishlist', 'wallet_balance', 'deleted_at', 'status'] });
 
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ phone: 1 }, { unique: true });

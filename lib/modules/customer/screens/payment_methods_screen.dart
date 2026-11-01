@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
+import '../../../core/services/bank_service.dart';
 import '../services/customer_service.dart';
 
 class PaymentMethodsScreen extends StatefulWidget {
@@ -95,11 +96,9 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       isScrollControlled: true,
       builder: (ctx) => _AddMethodSheet(
-        onAdd: (type, number, name) async {
+        onAdd: (type, number, name, bank, iban) async {
           await CustomerService().addPaymentMethod(
-            type: type,
-            accountNumber: type == 'cashOnDelivery' ? null : number,
-            accountName: type == 'cashOnDelivery' ? null : name,
+            type: type, accountNumber: number, accountName: name, bankName: bank, iban: iban,
           );
           await _load();
           if (mounted) showMessage(context, '${_kindOf(type).name} added!');
@@ -110,7 +109,6 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
 
   // The text under a saved method.
   String _detailOf(SavedPaymentMethod m) {
-    if (m.type == 'cashOnDelivery') return 'Pay when received';
     if (m.type == 'card') return '•••• ${m.detail}';
     return m.accountName.isEmpty ? m.detail : '${m.detail} · ${m.accountName}';
   }
@@ -180,7 +178,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.bold,
                     fontSize: 17)),
-            Text('Manage your payment options',
+            Text('Accounts you add money to your wallet from',
                 style: GoogleFonts.poppins(
                     color: AppColors.textMuted, fontSize: 11)),
           ]),
@@ -198,7 +196,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
           Icon(Icons.account_balance_wallet_outlined,
               color: AppColors.textMuted, size: 14),
           const SizedBox(width: 6),
-          Text('SAVED METHODS',
+          Text('SAVED ACCOUNTS',
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted,
                   fontSize: 11,
@@ -432,7 +430,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
 class _AddMethodSheet extends StatefulWidget {
   // Saves the method. type is the API value, such as jazzCash. Throws with a
   // message to show when the server refuses it.
-  final Future<void> Function(String type, String number, String name) onAdd;
+  final Future<void> Function(String type, String number, String name, String? bank, String? iban) onAdd;
   const _AddMethodSheet({required this.onAdd});
 
   @override
@@ -441,6 +439,11 @@ class _AddMethodSheet extends StatefulWidget {
 
 class _AddMethodSheetState extends State<_AddMethodSheet> {
   String _selectedType = 'jazzCash';
+  // A bank account: the bank from the server's list, and either the account
+  // number or the IBAN.
+  List<String> _banks = [];
+  String? _bank;
+  bool _useIban = false;
   final _numberCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   String? _error;
@@ -448,14 +451,16 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
 
   // Returns what to fix before the method can be added, or null.
   String? _check() {
-    if (!_needsDetail) return null;
     final number = _numberCtrl.text.trim();
     switch (_selectedType) {
       case 'jazzCash':
       case 'easyPaisa':
         if (!Validators.isMobile(number)) return 'Enter the wallet mobile number, e.g. 0300-1234567';
       case 'bank':
-        if (Validators.digitsOnly(number).length < 8) return 'Enter the full account number or IBAN';
+        if (_bank == null) return 'Choose your bank';
+        if (_useIban ? !Validators.isIban(number) : Validators.digitsOnly(number).length < 8) {
+          return _useIban ? 'Enter a valid IBAN, e.g. PK36SCBL0000001123456702' : 'Enter the full account number';
+        }
       case 'card':
         if (Validators.digitsOnly(number).length != 16) return 'Enter the 16-digit card number';
     }
@@ -463,9 +468,22 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
     return null;
   }
 
-  static const _types = ['jazzCash', 'easyPaisa', 'bank', 'cashOnDelivery', 'card'];
+  static const _types = ['jazzCash', 'easyPaisa', 'bank', 'card'];
 
-  bool get _needsDetail => _selectedType != 'cashOnDelivery';
+  @override
+  void initState() {
+    super.initState();
+    _loadBanks();
+  }
+
+  Future<void> _loadBanks() async {
+    try {
+      final banks = await BankService().getBanks();
+      if (mounted) setState(() => _banks = banks);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
 
   // The server keeps only the last four digits of a card.
   Future<void> _save() async {
@@ -476,7 +494,15 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
     }
     setState(() { _saving = true; _error = null; });
     try {
-      await widget.onAdd(_selectedType, _numberCtrl.text.trim(), _nameCtrl.text.trim());
+      final isBank = _selectedType == 'bank';
+      final number = _numberCtrl.text.trim();
+      await widget.onAdd(
+        _selectedType,
+        isBank && _useIban ? '' : number,
+        _nameCtrl.text.trim(),
+        isBank ? _bank : null,
+        isBank && _useIban ? number : null,
+      );
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) setState(() { _saving = false; _error = '$e'; });
@@ -585,21 +611,42 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
                       ))
                   .toList(),
             ),
-            if (_needsDetail) ...[
-              const SizedBox(height: 18),
-              AppTextField(
-                hint: 'Account Number / Mobile Number',
-                icon: Icons.tag_rounded,
-                ctrl: _numberCtrl,
-                keyboard: TextInputType.phone,
+            const SizedBox(height: 18),
+            if (_selectedType == 'bank') ...[
+              DropdownButtonFormField<String>(
+                initialValue: _bank,
+                isExpanded: true,
+                dropdownColor: AppColors.cardAlt,
+                decoration: InputDecoration(
+                  hintText: _banks.isEmpty ? 'Loading banks...' : 'Select your bank',
+                  prefixIcon: Icon(Icons.account_balance_rounded, color: AppColors.textMuted, size: 20),
+                ),
+                style: GoogleFonts.poppins(color: AppColors.textPrimary, fontSize: 14),
+                items: [for (final bank in _banks) DropdownMenuItem(value: bank, child: Text(bank))],
+                onChanged: (bank) => setState(() { _bank = bank; _error = null; }),
               ),
               const SizedBox(height: 10),
-              AppTextField(
-                hint: 'Account Holder Name',
-                icon: Icons.person_rounded,
-                ctrl: _nameCtrl,
-              ),
+              Row(children: [
+                ChoicePill(label: 'Account number', selected: !_useIban, onTap: () => setState(() { _useIban = false; _numberCtrl.clear(); _error = null; })),
+                const SizedBox(width: 8),
+                ChoicePill(label: 'IBAN', selected: _useIban, onTap: () => setState(() { _useIban = true; _numberCtrl.clear(); _error = null; })),
+              ]),
+              const SizedBox(height: 10),
             ],
+            AppTextField(
+              hint: _selectedType == 'bank'
+                  ? (_useIban ? 'IBAN (PK36SCBL0000001123456702)' : 'Account number')
+                  : _selectedType == 'card' ? 'Card number' : 'Mobile account number',
+              icon: Icons.tag_rounded,
+              ctrl: _numberCtrl,
+              keyboard: _selectedType == 'bank' && _useIban ? TextInputType.text : TextInputType.number,
+            ),
+            const SizedBox(height: 10),
+            AppTextField(
+              hint: 'Account Holder Name',
+              icon: Icons.person_rounded,
+              ctrl: _nameCtrl,
+            ),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!, style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12)),
@@ -631,6 +678,5 @@ _AcceptedMethod _kindOf(String type) => switch (type) {
   'jazzCash' => _AcceptedMethod(type, 'JazzCash', Icons.account_balance_wallet_rounded, AppColors.warning),
   'easyPaisa' => _AcceptedMethod(type, 'EasyPaisa', Icons.mobile_friendly_rounded, AppColors.success),
   'bank' => _AcceptedMethod(type, 'Bank Transfer', Icons.account_balance_rounded, AppColors.info),
-  'card' => _AcceptedMethod(type, 'Debit / Credit Card', Icons.credit_card_rounded, AppColors.primary),
-  _ => _AcceptedMethod(type, 'Cash on Delivery', Icons.payments_rounded, AppColors.teal),
+  _ => _AcceptedMethod(type, 'Debit / Credit Card', Icons.credit_card_rounded, AppColors.primary),
 };

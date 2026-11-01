@@ -6,6 +6,7 @@ const { nextId } = require('../utils/ids');
 const { badRequest, notFound, conflict } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
 const { availableBalance } = require('../services/earnings');
+const banks = require('../data/banks');
 
 // Payout accounts and withdrawals for tailors (docs/API.md, 3.12).
 const router = express.Router();
@@ -19,16 +20,18 @@ router.get('/payout-accounts', earners, async (req, res) => {
 router.post('/payout-accounts', earners, async (req, res) => {
   const type = v.oneOf(req.body.type, 'Type', PayoutAccount.TYPES);
   const owner = { user_id: req.user.id };
+  // A bank account needs the bank from the list and the account number. The
+  // IBAN is optional, and checked when it is given.
+  const isBank = type === 'bank';
+  const hasIban = isBank && String(req.body.iban || '').trim() !== '';
   const account = await PayoutAccount.create({
     _id: await nextId('PA'),
     ...owner,
     type,
-    account_number: type === 'bank'
-      ? v.text(req.body.account_number, 'Account number', { max: 34 })
-      : v.mobile(req.body.account_number, 'Mobile account number'),
+    account_number: isBank ? v.accountNumber(req.body.account_number) : v.mobile(req.body.account_number, 'Mobile account number'),
     account_name: v.text(req.body.account_name, 'Account holder name', { max: 100 }),
-    bank_name: type === 'bank' ? v.text(req.body.bank_name, 'Bank name', { max: 60 }) : null,
-    iban: type === 'bank' ? v.text(req.body.iban, 'IBAN', { required: false, max: 34 }) || null : null,
+    bank_name: isBank ? v.oneOf(req.body.bank_name, 'Bank', banks) : null,
+    iban: hasIban ? v.iban(req.body.iban) : null,
     is_default: !(await PayoutAccount.exists(owner)),
   });
   res.status(201).json(account);

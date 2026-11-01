@@ -39,8 +39,8 @@ The API always sends and accepts the values in the middle column. The admin pane
 | Account `status` | `active`, `suspended` | Same word, capitalised |
 | Verification `status` | `pending`, `approved`, `rejected` | Same word, capitalised |
 | Order `status` | `pending`, `accepted`, `rejected`, `inProgress`, `qualityCheck`, `readyForDelivery`, `delivered`, `completed`, `cancelled` | Four tabs, see the next table |
-| Payment `status` | `pending`, `completed`, `failed`, `refunded` | `pending` is Processing, `completed` is Paid, `refunded` is Refunded. `failed` has no label yet. |
-| Payment `method` | `jazzCash`, `easyPaisa`, `bank`, `card` | JazzCash, EasyPaisa, Bank, Card |
+| Payment `status` | `pending`, `completed`, `refunded` | `pending` is Processing, `completed` is Paid, `refunded` is Refunded. |
+| Payment `method` | `wallet` | Not shown: every order is paid from the wallet |
 | Dispute `status` | `open`, `resolved` | Same word, capitalised |
 | Dispute `resolution` | `refund`, `warning`, `dismiss` | Same word, capitalised |
 | Design `status`, also a portfolio sample | `active`, `flagged` | Same word, capitalised |
@@ -48,7 +48,7 @@ The API always sends and accepts the values in the middle column. The admin pane
 | Content report `status` | `pending`, `resolved` | Same word, capitalised |
 | Content report `action` | `remove`, `warn`, `dismiss` | Remove Content, Issue Warning, Dismiss Report |
 | Report `range` | `today`, `thisWeek`, `thisMonth`, `custom` | Today, This Week, This Month, Custom |
-| Saved payment method `type` | `jazzCash`, `easyPaisa`, `bank`, `card`, `cashOnDelivery` | Not shown in the admin panel |
+| Saved payment method `type` | `jazzCash`, `easyPaisa`, `bank`, `card` | Not shown in the admin panel |
 | Payout account `type` | `jazzCash`, `easyPaisa`, `bank` | Not shown in the admin panel |
 | Withdrawal `status` | `pending`, `paid`, `failed` | Not shown in the admin panel |
 | Message `type` | `text`, `image`, `document` | Not shown in the admin panel |
@@ -101,7 +101,7 @@ Service: `lib/modules/customer/services/customer_service.dart`
 | `GET /api/orders` | `getMyOrders` | The customer's orders. |
 | `POST /api/orders` | `placeOrder` | Place an order. |
 | `PUT /api/orders/:id/delivery-schedule` | `setDeliverySchedule` | Choose a delivery date and time slot. |
-| `POST /api/payments` | `makePayment` | Pay for an order. |
+| `POST /api/payments` | `makePayment` | Pay for an order from the wallet. |
 | `POST /api/reviews` | `submitReview` | Rate a tailor. |
 | `GET /api/notifications` | `getNotifications` | The user's notifications. |
 | `GET /api/garments/pricing` | `getGarmentPricing` | Garment price list. |
@@ -389,19 +389,24 @@ These measurements are separate from an order. The place order screen still send
 ]
 ```
 
-`detail` is the text the list shows: the wallet or bank account number, the last four digits of a card, and an empty string for cash on delivery.
+These are the accounts a customer adds money to the wallet from (3.7a). `detail` is the text the list shows: the mobile number of a wallet, the bank and the last four digits of a bank account, or the last four digits of a card. A bank account also carries `bank_name`.
 
 **`POST /api/payment-methods`**
 
 ```json
 {
-  "type": "easyPaisa",
-  "account_number": "0345-1112223",
+  "type": "bank",
+  "bank_name": "Meezan Bank",
+  "account_number": "0123456789012",
   "account_name": "Ayesha Khan"
 }
 ```
 
-Returns `201` with the new item. The first method a customer saves becomes the default. Never store a full card number. Keep the last four digits only.
+Send `iban` instead of `account_number` to use an IBAN, which is checked for typing mistakes. `bank_name` must be one of the names from `GET /api/banks`, and an account number has 8 to 20 digits. A wallet takes the mobile number as `account_number` (`type` `jazzCash` or `easyPaisa`), and a card takes its number. Returns `201` with the new item. The first account a customer saves becomes the default. Full bank and card numbers are never kept, only the last four digits.
+
+**`GET /api/banks`**
+
+The bank names to choose from, as an array of strings. Customers and tailors both use it.
 
 **`PUT /api/payment-methods/:id/default`**
 
@@ -410,6 +415,52 @@ No body. Returns the updated item. The previous default loses the flag.
 **`DELETE /api/payment-methods/:id`**
 
 Returns `204`. `409` when it is the default method.
+
+### 3.7a Wallet
+
+Orders and gifts are paid from the customer's wallet, which the customer fills from a saved account. The balance and every change are kept on the server.
+
+**`GET /api/wallet`**
+
+```json
+{
+  "balance": 3000,
+  "transactions": [
+    {
+      "id": "665f...",
+      "type": "topup",
+      "amount": 3000,
+      "balance_after": 3000,
+      "description": "Added Rs 3,000 from Meezan Bank ••••6702",
+      "order_id": null,
+      "created_at": "2026-11-01T09:30:00.000Z"
+    }
+  ]
+}
+```
+
+`type` is `topup`, `payment`, `refund` or `gift`. `amount` is positive when money comes in and negative when it goes out. The list has the latest 50, newest first.
+
+**`POST /api/wallet/top-up`**
+
+```json
+{
+  "method_id": "PM001",
+  "amount": 3000
+}
+```
+
+The customer chooses the amount, a whole number from 100 to 200,000, and the account it comes from. Returns `201` with the wallet in the shape above. `404` when the account is not the customer's. Until a payment provider is connected, the money is not taken from a real account (decision 19).
+
+**`POST /api/payments`**
+
+```json
+{
+  "order_id": "ORD-1001"
+}
+```
+
+Pays the order from the wallet. The amount is the order's own price, never one the app sends. Returns `201` with the payment, whose `method` is `wallet`. `409` when the order is already paid, and `409` when the wallet has too little, with a message such as "Your wallet has Rs 500 and this needs Rs 4,000. Add Rs 3,500 to your wallet first." A rejected or cancelled paid order is refunded to the wallet.
 
 ### 3.8 Wishlist
 
@@ -583,7 +634,7 @@ For tailors.
 }
 ```
 
-Returns `201` with the new account. `bank_name` is required for `bank` and `iban` is optional. For `jazzCash` and `easyPaisa`, `account_number` is the mobile number. The first account becomes the default.
+Returns `201` with the new account. A `bank` account needs `bank_name` from `GET /api/banks` and an account number of 8 to 20 digits, and `iban` is optional and checked when it is sent. For `jazzCash` and `easyPaisa`, `account_number` is the mobile number. The first account becomes the default.
 
 **`PUT /api/payout-accounts/:id/default`**
 
@@ -1014,7 +1065,7 @@ No body. Returns `204`. A viewer can like many times.
 }
 ```
 
-`gift` is Star, Rose, Diamond or Crown. The backend charges the viewer's default payment method (3.7) and adds the amount to the stream's `earnings`. Returns `204`. `409` when gifts are off, the stream has ended, or the customer has no payment method.
+`gift` is Star, Rose, Diamond or Crown. The backend takes the amount from the viewer's wallet (3.7a) and adds it to the stream's `earnings`. Returns `204`. `409` when gifts are off, the stream has ended, or the customer has no payment method.
 
 The pinned item's Order button opens the place order screen with that garment selected.
 
@@ -1070,7 +1121,7 @@ Request:
 
 ```json
 {
-  "email": "admin@sewsmart.com",
+  "email": "admin@example.com",
   "password": "your-password"
 }
 ```
@@ -1083,7 +1134,7 @@ Response `200`:
   "admin": {
     "id": "ad001",
     "name": "Admin",
-    "email": "admin@sewsmart.com"
+    "email": "admin@example.com"
   }
 }
 ```
@@ -1578,7 +1629,7 @@ Each item states what this draft assumes. Change the draft if the team decides o
 4. **Refunds.** The resolve dialog has no amount field, so a `refund` resolution refunds the full dispute amount. Cancelling an order that is already paid does not refund it automatically.
 5. **Revenue.** Every revenue figure is the gross amount customers paid, as the Payments screen calculates it today, not the commission the platform earned.
 7. **Reports against a profile.** `remove` is defined for designs and reviews only. What it does to a reported profile is open.
-8. **Cash on delivery.** The payment methods screen lets a customer save Cash on Delivery, but the payment screen and the `PaymentMethod` enum do not offer it. This draft allows `cashOnDelivery` as a saved method only, so an order cannot be paid that way yet.
+8. **Cash on delivery.** Not offered. Orders are paid from the wallet.
 9. **Price lists.** `GET /api/garments/pricing` is one shared list, while each tailor edits their own list. This draft treats the tailor's own list as the real one, so the place order and tailor profile screens should load `GET /api/tailors/:id/garments`.
 10. **Recommended designs.** The recommendations come from a catalogue of designs with a name, a category and a price range. Whether that catalogue is seeded by the team or built from the tailors' portfolio samples is open.
 11. **Try-on result.** The model returns one image, in one request that waits for the result. A true 3D view, for example a Blender turntable, is not built.
@@ -1586,5 +1637,6 @@ Each item states what this draft assumes. Change the draft if the team decides o
 13. **Password length.** The register screen accepts 4 characters, and this draft asks for 8 on the admin password. One rule for both would be simpler.
 14. **One review per order.** A customer reviews each delivered or completed order once, and cannot edit it afterwards.
 15. **Delivery address.** The tailor delivers to the customer's default address. The delivery schedule call does not choose an address yet.
-17. **Gifts.** A gift is charged to the viewer's default payment method when it is sent and is not refunded.
+17. **Gifts.** A gift is taken from the viewer's wallet when it is sent and is not refunded.
 18. **Reset code.** The reset email shows the token as a code as well as a link, because the app does not open links yet.
+19. **Wallet money.** Adding money to the wallet is a sandbox: no real bank, wallet or card is charged, because the project has no merchant account. The wallet balance, payments and refunds are real records. Connecting JazzCash, EasyPaisa or a bank means replacing `charge` in `backend/src/services/paymentGateway.js`.

@@ -64,6 +64,25 @@ function cnic(value) {
   return result;
 }
 
+// An IBAN with its two check digits verified, such as PK36SCBL0000001123456702.
+function iban(value, label = 'IBAN') {
+  const result = text(value, label).replace(/\s/g, '').toUpperCase();
+  if (!/^PK\d{2}[A-Z]{4}\d{16}$/.test(result)) throw badRequest(`${label} must look like PK36SCBL0000001123456702`);
+  const moved = `${result.slice(4)}${result.slice(0, 4)}`;
+  const digits = moved.replace(/[A-Z]/g, (c) => String(c.charCodeAt(0) - 55));
+  let remainder = 0;
+  for (const digit of digits) remainder = (remainder * 10 + Number(digit)) % 97;
+  if (remainder !== 1) throw badRequest(`${label} is not valid. Check it for a typing mistake`);
+  return result;
+}
+
+// A bank account number, 8 to 20 digits. Spaces and dashes are allowed.
+function accountNumber(value, label = 'Account number') {
+  const result = text(value, label).replace(/[\s-]/g, '');
+  if (!/^\d{8,20}$/.test(result)) throw badRequest(`${label} must have 8 to 20 digits`);
+  return result;
+}
+
 function password(value, minLength) {
   const result = typeof value === 'string' ? value : '';
   if (result.length < minLength) throw badRequest(`Password must be at least ${minLength} characters`);
@@ -76,5 +95,5 @@ function normalizePhone(phone) {
 }
 
 module.exports = {
-  text, optionalText, number, oneOf, bool, email, mobile, cnic, password, normalizePhone,
+  text, optionalText, number, oneOf, bool, email, mobile, cnic, iban, accountNumber, password, normalizePhone,
 };

@@ -51,6 +51,14 @@ async function signUp(api, role, fields = {}) {
   return { user, token: res.body.token, auth: { Authorization: `Bearer ${res.body.token}` } };
 }
 
+// Adds a bank account to a customer's saved accounts and puts [amount] in the
+// wallet from it, as the app does before paying.
+async function addMoney(api, session, amount) {
+  const account = await api.post('/api/payment-methods').set(session.auth)
+    .send({ type: 'bank', bank_name: 'Meezan Bank', account_number: '0123456789012', account_name: 'Test Customer' }).expect(201);
+  await api.post('/api/wallet/top-up').set(session.auth).send({ method_id: account.body.id, amount }).expect(201);
+}
+
 async function adminSession(api) {
   await Admin.create({ _id: 'ad001', name: 'Admin', email: 'admin@test.com', password_hash: await bcrypt.hash('adminpass1', 4) });
   const res = await api.post('/api/admin/auth/login').send({ email: 'admin@test.com', password: 'adminpass1' }).expect(200);
@@ -61,4 +69,4 @@ async function addGarment(tailorId, garment = 'Bridal Lehenga', price = 5000) {
   return Garment.create({ _id: await ids.nextId('G'), tailor_id: tailorId, garment, price, estimated_time: '7 days' });
 }
 
-module.exports = { setup, teardown, signUp, adminSession, addGarment, PASSWORD, PNG, Coupon, Design };
+module.exports = { setup, teardown, signUp, adminSession, addGarment, addMoney, PASSWORD, PNG, Coupon, Design };

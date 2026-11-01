@@ -75,14 +75,18 @@ class CustomerService {
   String _day(DateTime date) =>
       '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
-  // POST /api/payments. The amount is the order's own.
-  Future<PaymentModel> makePayment({required String orderId, required PaymentMethod method}) async =>
-      PaymentModel.fromJson(objectOf(await _api.post('/payments', {'order_id': orderId, 'method': method.name})));
+  // POST /api/payments. Pays the order from the wallet, for the order's own
+  // amount. Answers 409 with how much to add when the wallet has too little.
+  Future<PaymentModel> makePayment({required String orderId}) async =>
+      PaymentModel.fromJson(objectOf(await _api.post('/payments', {'order_id': orderId})));
 
-  // GET /api/payments/bank-account, where a bank transfer goes: bank_name,
-  // account_title, account_number and iban.
-  Future<Map<String, String>> getBankAccount() async =>
-      Map<String, String>.from(await _api.get('/payments/bank-account') as Map);
+  // ── Wallet ──────────────────────────────────────────────────────────────────
+  // GET /api/wallet
+  Future<WalletModel> getWallet() async => WalletModel.fromJson(objectOf(await _api.get('/wallet')));
+
+  // POST /api/wallet/top-up. Adds [amount] rupees from a saved account.
+  Future<WalletModel> topUpWallet({required String methodId, required int amount}) async =>
+      WalletModel.fromJson(objectOf(await _api.post('/wallet/top-up', {'method_id': methodId, 'amount': amount})));
 
   // POST /api/reviews. One review per delivered or completed order.
   Future<ReviewModel> submitReview({required String orderId, required int rating, required String comment}) async =>
@@ -117,12 +121,19 @@ class CustomerService {
   Future<List<SavedPaymentMethod>> getPaymentMethods() async =>
       listOf(await _api.get('/payment-methods'), SavedPaymentMethod.fromJson);
 
-  // POST /api/payment-methods. type is jazzCash, easyPaisa, bank, card or cashOnDelivery.
-  Future<SavedPaymentMethod> addPaymentMethod({required String type, String? accountNumber, String? accountName}) async =>
+  // POST /api/payment-methods. type is jazzCash, easyPaisa, bank or card. A
+  // bank account has the bank from BankService and an account number or an IBAN.
+  Future<SavedPaymentMethod> addPaymentMethod({
+    required String type, required String accountName,
+    String? accountNumber, String? bankName, String? iban,
+  }) async =>
       SavedPaymentMethod.fromJson(objectOf(await _api.post('/payment-methods', {
         'type': type,
-        'account_number': type == 'jazzCash' || type == 'easyPaisa' ? Validators.normalizeMobile(accountNumber ?? '') : accountNumber,
-        'account_name': ?accountName,
+        'account_name': accountName.trim(),
+        if (accountNumber != null && accountNumber.trim().isNotEmpty)
+          'account_number': type == 'jazzCash' || type == 'easyPaisa' ? Validators.normalizeMobile(accountNumber) : accountNumber.trim(),
+        'bank_name': ?bankName,
+        if (iban != null && iban.trim().isNotEmpty) 'iban': iban.replaceAll(' ', '').toUpperCase(),
       })));
 
   // PUT /api/payment-methods/:id/default
@@ -252,7 +263,7 @@ class CustomerService {
   Future<void> likeStream(String streamId) => _api.post('/streams/$streamId/like');
 
   // POST /api/streams/:id/gifts. giftName is Star, Rose, Diamond or Crown, and
-  // is charged to the viewer's default payment method.
+  // is paid from the viewer's wallet.
   Future<void> sendGift(String streamId, String giftName) =>
       _api.post('/streams/$streamId/gifts', {'gift': giftName});
 }

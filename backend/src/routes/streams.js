@@ -3,12 +3,11 @@ const Stream = require('../models/Stream');
 const StreamMessage = require('../models/StreamMessage');
 const StreamGift = require('../models/StreamGift');
 const Garment = require('../models/Garment');
-const PaymentMethod = require('../models/PaymentMethod');
 const v = require('../utils/validate');
 const { nextId } = require('../utils/ids');
 const { notFound, conflict, forbidden } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
-const { charge } = require('../services/paymentGateway');
+const { credit, debit } = require('../services/wallet');
 
 // Live streams: the tailor's side (docs/API.md, 3.16) and the viewer's (3.24).
 // The video itself needs a streaming service (decision 12).
@@ -123,24 +122,25 @@ router.post('/:id/like', customerOnly, async (req, res) => {
   res.status(204).end();
 });
 
-// Charged to the viewer's default payment method and not refunded (decision 17).
+// Paid from the viewer's wallet and not refunded (decision 17).
 router.post('/:id/gifts', customerOnly, async (req, res) => {
   const stream = await liveStream(req.params.id);
   if (!stream.gifts_enabled) throw conflict('Gifts are turned off for this stream');
   const name = v.oneOf(req.body.gift, 'Gift', Object.keys(Stream.GIFTS));
   const amount = Stream.GIFTS[name];
-  const method = await PaymentMethod.findOne({ customer_id: req.user.id, is_default: true });
-  if (!method || method.type === 'cashOnDelivery') throw conflict('Add a payment method to send gifts');
-  const result = await charge({ method: method.type, amount });
-  if (result.status !== 'completed') throw conflict(result.reason || 'The payment did not go through');
-
-  await StreamGift.create({ stream_id: stream.id, customer_id: req.user.id, gift: name, amount, payment_method_id: method.id });
-  const updated = await Stream.updateOne(
-    { _id: stream.id, 'gifts.name': name },
-    { $inc: { earnings: amount, 'gifts.$.count': 1 } },
-  );
-  if (!updated.matchedCount) {
-    await Stream.updateOne({ _id: stream.id }, { $inc: { earnings: amount }, $push: { gifts: { name, amount, count: 1 } } });
+  await debit(req.user.id, amount, { type: 'gift', description: `${name} gift to ${stream.tailor_name}` });
+  try {
+    await StreamGift.create({ stream_id: stream.id, customer_id: req.user.id, gift: name, amount });
+    const updated = await Stream.updateOne(
+      { _id: stream.id, 'gifts.name': name },
+      { $inc: { earnings: amount, 'gifts.$.count': 1 } },
+    );
+    if (!updated.matchedCount) {
+      await Stream.updateOne({ _id: stream.id }, { $inc: { earnings: amount }, $push: { gifts: { name, amount, count: 1 } } });
+    }
+  } catch (error) {
+    await credit(req.user.id, amount, { type: 'refund', description: `${name} gift was not sent` });
+    throw error;
   }
   res.status(204).end();
 });

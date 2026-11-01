@@ -1,6 +1,6 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
-const { setup, teardown, signUp, addGarment, Coupon } = require('./helpers');
+const { setup, teardown, signUp, addGarment, addMoney, Coupon } = require('./helpers');
 const { runJobs } = require('../src/services/jobs');
 const { addDays } = require('../src/utils/dates');
 const Order = require('../src/models/Order');
@@ -31,9 +31,15 @@ test('an order goes from placement to a completed, reviewed and paid-out order',
   }).expect(201);
   const order = placed.body;
   assert.deepStrictEqual([order.id, order.status, order.amount, order.discount], ['ORD-1001', 'pending', 4000, 1000]);
-  const payment = await api.post('/api/payments').set(customer.auth).send({ order_id: order.id, method: 'jazzCash' }).expect(201);
-  assert.deepStrictEqual([payment.body.status, payment.body.amount], ['completed', 4000]);
-  await api.post('/api/payments').set(customer.auth).send({ order_id: order.id, method: 'jazzCash' }).expect(409);
+  // An empty wallet cannot pay, and says how much to add.
+  const poor = await api.post('/api/payments').set(customer.auth).send({ order_id: order.id }).expect(409);
+  assert.match(poor.body.message, /Add Rs 4,000 to your wallet/);
+  await addMoney(api, customer, 5000);
+  const payment = await api.post('/api/payments').set(customer.auth).send({ order_id: order.id }).expect(201);
+  assert.deepStrictEqual([payment.body.status, payment.body.amount, payment.body.method], ['completed', 4000, 'wallet']);
+  await api.post('/api/payments').set(customer.auth).send({ order_id: order.id }).expect(409);
+  const afterPaying = await api.get('/api/wallet').set(customer.auth).expect(200);
+  assert.strictEqual(afterPaying.body.balance, 1000);
 
   // The tailor works through the order. Status only moves forward.
   await api.put(`/api/orders/${order.id}/status`).set(tailor.auth).send({ status: 'inProgress' }).expect(409);
@@ -82,8 +88,11 @@ test('an order goes from placement to a completed, reviewed and paid-out order',
 
   // Withdraw it.
   await api.post('/api/withdrawals').set(tailor.auth).send({}).expect(409);
-  await api.post('/api/payout-accounts').set(tailor.auth).send({ type: 'bank', account_number: '0123', account_name: 'Owner' }).expect(400);
-  await api.post('/api/payout-accounts').set(tailor.auth).send({ type: 'bank', account_number: '0123', account_name: 'Owner', bank_name: 'HBL' }).expect(201);
+  const bank = { type: 'bank', account_number: '0123456789012', account_name: 'Owner', bank_name: 'Habib Bank Limited (HBL)' };
+  await api.post('/api/payout-accounts').set(tailor.auth).send({ ...bank, bank_name: undefined }).expect(400);
+  await api.post('/api/payout-accounts').set(tailor.auth).send({ ...bank, account_number: '0123' }).expect(400);
+  await api.post('/api/payout-accounts').set(tailor.auth).send({ ...bank, iban: 'PK00NOPE' }).expect(400);
+  await api.post('/api/payout-accounts').set(tailor.auth).send({ ...bank, iban: 'PK36SCBL0000001123456702' }).expect(201);
   await api.post('/api/withdrawals').set(tailor.auth).send({ amount: 100 }).expect(400);
   await api.post('/api/withdrawals').set(tailor.auth).send({ amount: 9000 }).expect(400);
   const withdrawal = await api.post('/api/withdrawals').set(tailor.auth).send({}).expect(201);
@@ -108,9 +117,13 @@ test('people outside an order cannot see or change it', async () => {
   const mine = await api.get('/api/orders').set(other.auth).expect(200);
   assert.strictEqual(mine.body.length, 0);
 
-  // Rejecting a paid order refunds it.
-  await api.post('/api/payments').set(owner.auth).send({ order_id: order.id, method: 'card' }).expect(201);
+  // Rejecting a paid order refunds it to the wallet.
+  await addMoney(api, owner, 2000);
+  await api.post('/api/payments').set(owner.auth).send({ order_id: order.id }).expect(201);
+  assert.strictEqual((await api.get('/api/wallet').set(owner.auth)).body.balance, 800);
   await api.put(`/api/orders/${order.id}/reject`).set(tailor.auth).expect(200);
+  const refunded = await api.get('/api/wallet').set(owner.auth).expect(200);
+  assert.deepStrictEqual([refunded.body.balance, refunded.body.transactions[0].type], [2000, 'refund']);
   const Payment = require('../src/models/Payment');
   assert.strictEqual((await Payment.findOne({ order_id: order.id })).status, 'refunded');
 });

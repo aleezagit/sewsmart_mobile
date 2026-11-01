@@ -1,7 +1,8 @@
 const { createSchema, mongoose } = require('./base');
 
-const METHODS = ['jazzCash', 'easyPaisa', 'bank', 'card'];
-const STATUSES = ['pending', 'completed', 'failed', 'refunded'];
+// Orders are paid from the customer's wallet.
+const METHODS = ['wallet'];
+const STATUSES = ['pending', 'completed', 'refunded'];
 
 const paymentSchema = createSchema({
   transaction_id: { type: String, default: null },
@@ -11,8 +12,7 @@ const paymentSchema = createSchema({
   amount: { type: Number, required: true },
   method: { type: String, enum: METHODS, required: true },
   status: { type: String, enum: STATUSES, default: 'pending' },
-  failure_reason: { type: String, default: null },
-}, { hidden: ['failure_reason'] });
+});
 
 const Payment = mongoose.model('Payment', paymentSchema);
 Object.assign(Payment, { METHODS, STATUSES });

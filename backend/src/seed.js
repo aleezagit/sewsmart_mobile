@@ -71,7 +71,7 @@ const DESIGNS = [
 async function seedPlatform() {
   await Settings.current();
   if (!(await Admin.exists({}))) {
-    if (!config.admin.password) throw new Error('Set ADMIN_PASSWORD in .env to create the first admin');
+    if (!config.admin.email || !config.admin.password) throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD in .env to create the first admin');
     await Admin.create({
       _id: 'ad001', name: 'Admin', email: config.admin.email, password_hash: await bcrypt.hash(config.admin.password, 10),
     });
@@ -102,9 +102,9 @@ async function createOrder(customer, tailor, garmentName, status, days, extra = 
   });
   if (status !== 'pending' && status !== 'rejected') {
     await Payment.create({
-      _id: await ids.paymentId(), transaction_id: `JC-${randomCode(10, 'ABCDEF0123456789')}`,
+      _id: await ids.paymentId(), transaction_id: `WL-${randomCode(10, 'ABCDEF0123456789')}`,
       order_id: order.id, customer_id: customer.id, tailor_id: tailor.id, amount: order.amount,
-      method: 'jazzCash', status: 'completed', created_at: created,
+      method: 'wallet', status: 'completed', created_at: created,
     });
   }
   return order;
@@ -182,8 +182,7 @@ async function seedDemo() {
     { _id: await ids.nextId('AD'), customer_id: ayesha.id, label: 'work', street: 'Office 4, 2nd Floor, Arfa Tower', area: 'Ferozepur Road', city: 'Lahore', phone: '03001234567' },
   ]);
   await PaymentMethod.create([
-    { _id: await ids.nextId('PM'), customer_id: ayesha.id, type: 'jazzCash', detail: '03012345678', account_name: 'Ayesha Khan', is_default: true },
-    { _id: await ids.nextId('PM'), customer_id: ayesha.id, type: 'cashOnDelivery' },
+    { _id: await ids.nextId('PM'), customer_id: ayesha.id, type: 'bank', bank_name: 'Meezan Bank', detail: 'Meezan Bank ••••6702', account_name: 'Ayesha Khan', is_default: true },
   ]);
 
   const account = await PayoutAccount.create({ _id: await ids.nextId('PA'), user_id: sana.id, type: 'bank', account_number: '0123-4567890', account_name: 'Sana Fatima', bank_name: 'HBL', is_default: true });

@@ -22,14 +22,15 @@ class PayoutService {
       listOf(await _api.get('/payout-accounts'), PayoutAccount.fromJson);
 
   // POST /api/payout-accounts
-  // type is jazzCash, easyPaisa or bank. bankName and iban apply to bank only.
+  // type is jazzCash, easyPaisa or bank. bankName (from BankService) and iban
+  // apply to bank only.
   Future<PayoutAccount> addPayoutAccount({
     required String type, required String accountNumber,
     required String accountName, String? bankName, String? iban,
   }) async =>
       PayoutAccount.fromJson(objectOf(await _api.post('/payout-accounts', {
         'type': type,
-        'account_number': type == 'bank' ? accountNumber : Validators.normalizeMobile(accountNumber),
+        'account_number': type == 'bank' ? accountNumber.trim() : Validators.normalizeMobile(accountNumber),
         'account_name': accountName,
         'bank_name': ?bankName, 'iban': ?iban,
       })));

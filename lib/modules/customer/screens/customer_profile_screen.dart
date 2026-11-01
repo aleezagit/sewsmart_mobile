@@ -10,6 +10,7 @@ import '../../auth/screens/login_screen.dart';
 import '../services/customer_service.dart';
 import 'addresses_screen.dart';
 import 'payment_methods_screen.dart';
+import 'wallet_screen.dart';
 import 'saved_designs_screen.dart';
 // ignore_for_file: use_build_context_synchronously
 
@@ -320,8 +321,16 @@ class _CustomerProfileScreenState extends State<CustomerProfileScreen> {
           onTap: _openSavedDesigns,
         ),
         _SettingsTile(
-          icon: Icons.credit_card_outlined,
-          label: 'Payment Methods',
+          icon: Icons.account_balance_wallet_outlined,
+          label: 'My Wallet',
+          onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => const WalletScreen()),
+          ),
+        ),
+        _SettingsTile(
+          icon: Icons.account_balance_outlined,
+          label: 'Bank Accounts & Cards',
           onTap: () => Navigator.push(
             context,
             MaterialPageRoute(
