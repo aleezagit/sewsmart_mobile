@@ -152,8 +152,6 @@ Three services are new and sit in `lib/core/services/` because more than one rol
 | `GET /api/searches` | `CustomerService.getMySearches` | AI recommendations |
 | `GET /api/searches/trending` | `CustomerService.getTrendingSearches` | AI recommendations |
 | `GET /api/ai/recommendations` | `CustomerService.getRecommendations` | AI recommendations |
-| `POST /api/ai/designs` | `CustomerService.generateDesigns` | AI design studio |
-| `POST /api/ai/designs/:id/send` | `CustomerService.sendDesignToTailor` | AI design studio |
 | `POST /api/ai/try-on` | `CustomerService.generateTryOn` | Virtual try-on |
 | `PUT /api/ai/try-on/:id/save` | `CustomerService.saveTryOn` | Virtual try-on |
 | `GET /api/payout-accounts` | `PayoutService.getPayoutAccounts` | Tailor payment |
@@ -523,7 +521,9 @@ The most frequent searches of all customers in the last seven days, highest coun
 
 **`GET /api/ai/recommendations?query=&limit=`**
 
-With `query`, the designs most similar to it. Without `query`, designs picked from the customer's own recent searches. `limit` defaults to 6.
+With `query`, the designs closest in meaning to it. Without `query`, the designs closest to the customer's own taste: their five latest searches (newer ones count more) and the designs they saved, which are not offered again. `limit` defaults to 6.
+
+Closeness is measured on embeddings: Gemini turns each design's text (name, category, tags and Roman Urdu words for the category) and each search into a list of numbers, so a search like "shaadi ka joda" or a misspelling like "lehnga" still finds the bridal designs. A search's embedding is stored when `POST /api/searches` saves it, so recommendations from history need no request. Without `GEMINI_API_KEY`, or when Gemini does not answer, designs are ranked by matching words instead.
 
 ```json
 [
@@ -539,46 +539,6 @@ With `query`, the designs most similar to it. Without `query`, designs picked fr
 ```
 
 `category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts. With `PIXABAY_API_KEY` set, each gets a different photo found by searching Pixabay for its name, and a design that has none yet is retried at the next start. `image_url` is `null` without a key, and the screen then shows its category icon. The app loads the photo straight from that address and credits Pixabay on screen.
-
-### 3.10 AI design studio
-
-**`POST /api/ai/designs`**
-
-```json
-{
-  "prompt": "A red bridal lehenga with golden embroidery and floral patterns",
-  "category": "Bridal",
-  "color": "Red",
-  "fabric": "Silk"
-}
-```
-
-Returns `201` with four design concepts.
-
-```json
-[
-  {
-    "id": "AID1001",
-    "title": "Classic Elegance",
-    "category": "Bridal",
-    "color": "Red",
-    "fabric": "Silk",
-    "image_url": "https://pixabay.com/get/photo-2_640.jpg"
-  }
-]
-```
-
-Each concept has a photo found by searching Pixabay for the colour, fabric, category and the prompt's main words. Asking again starts from a different place in the results, so the photos change. `image_url` is `null` when there is no `PIXABAY_API_KEY` or Pixabay does not answer.
-
-**`POST /api/ai/designs/:id/send`**
-
-```json
-{
-  "tailor_id": "T001"
-}
-```
-
-Returns `204`. The tailor gets a notification with the design. The studio opens from the AI Design tile on the customer home screen, and Send to Tailor opens a tailor picker. The screen does not call `generateDesigns` or this endpoint yet, so after a tailor is picked it only shows a message.
 
 ### 3.11 Virtual try-on
 

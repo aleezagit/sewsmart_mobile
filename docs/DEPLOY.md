@@ -33,10 +33,18 @@ Render's free plan blocks SMTP, so the API sends email through Brevo's web API.
 Check the spam folder when testing. Without `BREVO_API_KEY` the code is only
 written to the server's log.
 
-## 4. Design photos (Pixabay)
+## 4. AI recommendations (Gemini)
 
-Designs in AI Recommendations and the AI Design Studio show real photos found
-on Pixabay. Without a key the apps show icons instead.
+Searches and designs are compared by meaning with Google's free Gemini
+embeddings. Without a key, recommendations match keywords instead.
+
+1. Open aistudio.google.com/apikey, sign in with Google and create an API key.
+2. Set `GEMINI_API_KEY` on Render. The designs get their embeddings the next
+   time the server starts.
+
+## 5. Design photos (Pixabay)
+
+Designs in AI Recommendations show real photos found on Pixabay. Without a key the apps show icons instead.
 
 1. Create a free account at pixabay.com and open pixabay.com/api/docs.
 2. The key is shown on that page once you are signed in (100 requests a minute).
@@ -47,7 +55,7 @@ Pixabay asks apps to credit it (the screens say "Photos by Pixabay") and to
 copy photos to their own storage for long-term use. This project keeps their
 addresses, which is fine for a demo.
 
-## 5. The API (Render)
+## 6. The API (Render)
 
 1. Create an account at render.com and connect your GitHub account.
 2. **New, Blueprint**, choose this repository and the branch to deploy. Render
@@ -59,13 +67,14 @@ addresses, which is fine for a demo.
 | `MONGODB_URI` | the Atlas connection string |
 | `ADMIN_EMAIL` and `ADMIN_PASSWORD` | the first admin's sign-in (8 or more characters) |
 | `BREVO_API_KEY`, `MAIL_FROM` | from Brevo (step 3) |
-| `PIXABAY_API_KEY` | from Pixabay (step 4) |
+| `GEMINI_API_KEY` | from Google AI Studio (step 4) |
+| `PIXABAY_API_KEY` | from Pixabay (step 5) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | from LiveKit |
 
 4. Deploy. When it is live, open `https://YOUR-SERVICE.onrender.com/api/health`.
    It should show `{"status":"ok"}`. The admin account is created on the first start.
 
-## 6. The apps
+## 7. The apps
 
 - **Phone app:** open the login screen, tap **Server** and enter
   `https://YOUR-SERVICE.onrender.com`. Or build the APK with that address:

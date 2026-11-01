@@ -156,7 +156,7 @@ test('a new database gets the design catalogue, with a different Pixabay photo e
   try {
     await Design.deleteMany({});
     await ensureCatalogue();
-    const total = require('../src/data/designs').length;
+    const total = require('../src/data/designs').DESIGNS.length;
     assert.strictEqual(await Design.countDocuments(), total);
     assert.strictEqual(await Design.countDocuments({ image_url: null }), total);
     assert.strictEqual(calls, 0);

@@ -39,6 +39,10 @@ module.exports = {
   },
   // Pixabay API key (free) for the photos shown with designs. Without it the apps show icons.
   pixabayApiKey: env.PIXABAY_API_KEY,
+  // Google Gemini API key (free, aistudio.google.com/apikey) for the embeddings behind AI
+  // recommendations. Without it, recommendations match keywords instead.
+  geminiApiKey: env.GEMINI_API_KEY,
+  geminiEmbeddingModel: env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001',
   tryOnServiceUrl: (env.TRYON_SERVICE_URL || '').replace(/\/$/, ''),
   admin: {
     email: env.ADMIN_EMAIL,

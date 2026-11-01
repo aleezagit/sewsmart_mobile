@@ -14,7 +14,6 @@ import 'order_history_screen.dart';
 import 'notifications_screen.dart';
 import 'virtual_tryon_screen.dart';
 import 'customer_ai_recommendations_screen.dart';
-import 'ai_design_screen.dart';
 import 'live_streams_screen.dart';
 import 'live_viewer_screen.dart';
 import 'measure_screen.dart';
@@ -227,15 +226,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               context,
               MaterialPageRoute(
                   builder: (_) => const CustomerAiRecommendationsScreen()),
-            ),
-      },
-      {
-        'icon': Icons.auto_awesome_rounded,
-        'label': 'AI Design',
-        'gradient': [const Color(0xFFA855F7), AppColors.secondary],
-        'onTap': () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AiDesignScreen()),
             ),
       },
       {

@@ -64,49 +64,74 @@ test('searches, recommendations and the wishlist', async () => {
   await api.delete('/api/wishlist/D001').set(customer.auth).expect(204);
 });
 
-test('the AI design studio sends a concept to a tailor', async () => {
-  const tailor = await signUp(api, 'tailor');
-  const designs = await api.post('/api/ai/designs').set(customer.auth)
-    .send({ prompt: 'Red lehenga with golden embroidery', category: 'Bridal', color: 'Red', fabric: 'Silk' }).expect(201);
-  assert.strictEqual(designs.body.length, 4);
-  assert.match(designs.body[0].description, /Red silk bridal/);
-  await api.post(`/api/ai/designs/${designs.body[0].id}/send`).set(customer.auth).send({ tailor_id: tailor.user.id }).expect(204);
-  const notes = await api.get('/api/notifications').set(tailor.auth).expect(200);
-  assert.strictEqual(notes.body[0].title, 'Design Shared With You');
-});
-
-test('design concepts get Pixabay photos, or none when there is no key or Pixabay fails', async () => {
+test('recommendations rank by meaning with Gemini embeddings, and by keywords without them', async () => {
   const config = require('../src/config');
+  const Search = require('../src/models/Search');
+  const { ensureEmbeddings } = require('../src/services/bootstrap');
+  // A stand-in for Gemini: each word lands in one of 64 slots, so texts that share words end up close.
+  const slots = (text) => {
+    const vector = new Array(64).fill(0);
+    for (const word of text.toLowerCase().match(/[a-z]+/g) || []) {
+      let slot = 0;
+      for (const char of word) slot = (slot * 31 + char.charCodeAt(0)) % 64;
+      vector[slot] += 1;
+    }
+    return vector;
+  };
   const realFetch = global.fetch;
-  const queries = [];
+  const calls = [];
   let status = 200;
   global.fetch = async (url, options) => {
-    queries.push({ query: new URL(url).searchParams.get('q'), key: new URL(url).searchParams.get('key') });
-    const photos = Array.from({ length: 12 }, (_, i) => ({ webformatURL: `https://pixabay.com/get/photo-${i + 1}_640.jpg` }));
-    return { ok: status === 200, status, json: async () => ({ hits: photos }) };
+    const body = JSON.parse(options.body);
+    calls.push({ url: String(url), key: options.headers['x-goog-api-key'], types: body.requests.map((r) => r.taskType) });
+    return {
+      ok: status === 200,
+      status,
+      text: async () => 'refused',
+      json: async () => ({ embeddings: body.requests.map((r) => ({ values: slots(r.content.parts[0].text) })) }),
+    };
   };
-  const body = { prompt: 'Red lehenga with golden embroidery', category: 'Bridal', color: 'Red', fabric: 'Silk' };
+  const reader = await signUp(api, 'customer');
+  const ids = async (path, who = reader) => (await api.get(path).set(who.auth).expect(200)).body.map((d) => d.id);
   const errors = console.error;
   try {
-    const none = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
-    assert.deepStrictEqual(none.body.map((d) => d.image_url), [null, null, null, null]);
-    assert.strictEqual(queries.length, 0);
+    // No key: keywords decide, and nothing is sent anywhere.
+    assert.deepStrictEqual(await ids('/api/ai/recommendations?query=summer lawn'), ['D002']);
+    assert.strictEqual(calls.length, 0);
 
-    config.pixabayApiKey = 'pixabay-key';
-    const withKey = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
-    const photos = withKey.body.map((d) => d.image_url);
-    assert.strictEqual(new Set(photos).size, 4);
-    assert.ok(photos.every((url) => /^https:\/\/pixabay\.com\/get\/photo-\d+_640\.jpg$/.test(url)));
-    assert.deepStrictEqual(queries, [{ query: 'Red Silk Bridal dress lehenga golden embroidery', key: 'pixabay-key' }]);
+    // With a key the designs get their embeddings once, and again only when something changes.
+    config.geminiApiKey = 'gemini-key';
+    await ensureEmbeddings();
+    assert.deepStrictEqual(calls.map((c) => [c.key, c.types.length, c.types[0]]), [['gemini-key', 2, 'RETRIEVAL_DOCUMENT']]);
+    assert.match(calls[0].url, /models\/gemini-embedding-001:batchEmbedContents$/);
+    await ensureEmbeddings();
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual((await api.get('/api/ai/recommendations').set(reader.auth)).body[0].embedding, undefined);
 
-    status = 429;
+    // A search in other words (Roman Urdu) still finds the bridal design: it shares "shaadi" and "joda" with its text.
+    assert.deepStrictEqual((await ids('/api/ai/recommendations?query=shaadi ka joda'))[0], 'D001');
+    assert.deepStrictEqual(calls.at(-1).types, ['RETRIEVAL_QUERY']);
+
+    // A saved search keeps its embedding, so recommendations from history cost no request.
+    await api.post('/api/searches').set(reader.auth).send({ query: 'summer lawn' }).expect(201);
+    assert.strictEqual((await Search.findOne({ customer_id: reader.user.id })).embedding.length, 64);
+    const before = calls.length;
+    assert.deepStrictEqual((await ids('/api/ai/recommendations'))[0], 'D002');
+    assert.strictEqual(calls.length, before);
+
+    // Saved designs shape the taste too, and are not recommended again.
+    const saver = await signUp(api, 'customer');
+    await api.post('/api/wishlist').set(saver.auth).send({ design_id: 'D001' }).expect(204);
+    assert.deepStrictEqual(await ids('/api/ai/recommendations', saver), ['D002']);
+
+    // When Gemini does not answer, keywords take over instead of an error.
+    status = 500;
     console.error = () => {};
-    const failed = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
-    assert.deepStrictEqual(failed.body.map((d) => d.image_url), [null, null, null, null]);
+    assert.deepStrictEqual(await ids('/api/ai/recommendations?query=summer lawn'), ['D002']);
   } finally {
     console.error = errors;
     global.fetch = realFetch;
-    config.pixabayApiKey = undefined;
+    config.geminiApiKey = undefined;
   }
 });
 

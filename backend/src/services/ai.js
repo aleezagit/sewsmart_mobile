@@ -1,6 +1,5 @@
-const crypto = require('crypto');
 const Design = require('../models/Design');
-const { searchPhotos } = require('./stockPhotos');
+const { embed, similarity, normalize } = require('./embeddings');
 
 // Words that point to a design category. A query takes the category with the
 // most matching words, or General when none match.
@@ -41,10 +40,10 @@ function score(design, tokens, category) {
   return total;
 }
 
-// Designs most similar to the given queries, best first. Several queries (the
-// customer's recent searches) share the places in the result.
-async function recommend(queries, limit) {
-  const designs = await Design.find();
+// Keyword matching: designs most similar to the given queries, best first. Several
+// queries (the customer's recent searches) share the places in the result. This is
+// what recommendations fall back to without embeddings.
+function recommendByKeywords(designs, queries, limit) {
   if (!queries.length) return designs.slice(0, limit);
   const ranked = new Map();
   for (const query of queries) {
@@ -61,34 +60,47 @@ async function recommend(queries, limit) {
     .slice(0, limit);
 }
 
-const STYLES = [
-  { title: 'Classic Elegance', angle: 'traditional cut with balanced, refined detailing' },
-  { title: 'Modern Twist', angle: 'contemporary silhouette with clean lines and a modern neckline' },
-  { title: 'Royal Style', angle: 'rich, heavily worked finish with statement embellishment' },
-  { title: 'Minimalist', angle: 'simple structure that lets the fabric and colour lead' },
-];
+// Each older search counts a little less than the one after it, and a saved design a bit less than a search.
+const SEARCH_DECAY = 0.8;
+const SAVED_WEIGHT = 0.7;
 
-// Small words that tell a photo search nothing.
-const FILLER = new Set(['with', 'and', 'for', 'that', 'this', 'from', 'have', 'like', 'want']);
-
-// Four design concepts from a prompt and the picked style, each with a photo.
-// Each concept takes the prompt's details in a different direction. The photos
-// come from a Pixabay search for the colour, fabric, category and the prompt's
-// main words, and a new start point means asking again shows new photos.
-async function designConcepts({ prompt, category, color, fabric }) {
-  const taken = new Set(words(`${color} ${fabric} ${category}`));
-  const keywords = [...new Set(words(prompt).filter((w) => w.length > 3 && !FILLER.has(w) && !taken.has(w)))].slice(0, 3);
-  const details = words(prompt).filter((w) => w.length > 3).slice(0, 6).join(', ');
-  let photos = await searchPhotos(`${color} ${fabric} ${category} dress ${keywords.join(' ')}`.trim(), 20);
-  if (photos.length < STYLES.length) {
-    photos = [...new Set([...photos, ...(await searchPhotos(`${category} dress`, 20))])];
-  }
-  const start = photos.length > STYLES.length ? crypto.randomInt(photos.length - STYLES.length + 1) : 0;
-  return STYLES.map(({ title, angle }, i) => ({
-    title,
-    description: `${color} ${fabric.toLowerCase()} ${category.toLowerCase()} outfit: ${angle}${details ? `. Inspired by: ${details}` : ''}.`,
-    image_url: photos.length ? photos[(start + i) % photos.length] : null,
-  }));
+// The customer's taste as one vector: their recent searches (newest first) and
+// the designs they saved, blended. Null when none of them has an embedding.
+function tasteOf(searches, savedDesigns) {
+  const parts = [
+    ...searches.map((s, i) => ({ vector: s.embedding, weight: SEARCH_DECAY ** i })),
+    ...savedDesigns.map((d) => ({ vector: d.embedding, weight: SAVED_WEIGHT })),
+  ].filter((part) => part.vector?.length);
+  if (!parts.length) return null;
+  const sum = new Array(parts[0].vector.length).fill(0);
+  for (const { vector, weight } of parts) vector.forEach((value, i) => { sum[i] += value * weight; });
+  return normalize(sum);
 }
 
-module.exports = { categorize, recommend, designConcepts };
+// Designs for a search (`query`), or, without one, for the customer's own taste:
+// their recent `searches` and `saved` design ids. Designs are ranked by how close
+// their embedding is to the search or the taste. Without embeddings (no Gemini key,
+// or Gemini not answering) the ranking is by keywords instead.
+async function recommend({ query, searches, saved, limit }) {
+  const designs = await Design.find();
+  const keywordQueries = query ? [query] : searches.map((s) => s.query);
+  if (!query && !searches.length && !saved.length) return designs.slice(0, limit);
+
+  const embedded = designs.filter((d) => d.embedding?.length);
+  let target = null;
+  if (embedded.length) {
+    target = query
+      ? (await embed([query], 'RETRIEVAL_QUERY'))?.[0]
+      : tasteOf(searches, embedded.filter((d) => saved.includes(d.id)));
+  }
+  if (!target) return recommendByKeywords(designs, keywordQueries, limit);
+
+  return embedded
+    .filter((d) => query || !saved.includes(d.id))
+    .map((design) => ({ design, closeness: similarity(target, design.embedding) }))
+    .sort((a, b) => b.closeness - a.closeness)
+    .slice(0, limit)
+    .map(({ design }) => design);
+}
+
+module.exports = { categorize, recommend };

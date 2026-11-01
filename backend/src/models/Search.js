@@ -4,7 +4,9 @@ const searchSchema = createSchema({
   customer_id: { type: String, required: true, index: true },
   query: { type: String, required: true },
   category: { type: String, required: true },
-}, { stringId: false, hidden: ['customer_id', 'id'] });
+  // The search turned into numbers, so recommendations from a customer's history need no API call.
+  embedding: { type: [Number], default: undefined },
+}, { stringId: false, hidden: ['customer_id', 'id', 'embedding'] });
 
 searchSchema.index({ created_at: -1 });
 

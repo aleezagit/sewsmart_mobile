@@ -10,7 +10,10 @@ const designSchema = createSchema({
   price_max: { type: Number, required: true },
   image_url: { type: String, default: null },
   tags: { type: [String], default: [] },
-}, { hidden: ['tags', 'created_at'] });
+  // What the AI recommendations compare searches against (services/embeddings.js).
+  embedding: { type: [Number], default: undefined },
+  embedding_model: { type: String, default: null },
+}, { hidden: ['tags', 'created_at', 'embedding', 'embedding_model'] });
 
 const Design = mongoose.model('Design', designSchema);
 Design.CATEGORIES = CATEGORIES;

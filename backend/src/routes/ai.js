@@ -1,19 +1,17 @@
 const path = require('path');
 const express = require('express');
 const Search = require('../models/Search');
-const AiDesign = require('../models/AiDesign');
 const TryOn = require('../models/TryOn');
-const User = require('../models/User');
 const v = require('../utils/validate');
 const { nextId } = require('../utils/ids');
 const { badRequest, notFound } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
 const { imageUpload, fileUrl } = require('../middleware/upload');
-const { categorize, recommend, designConcepts } = require('../services/ai');
+const { categorize, recommend } = require('../services/ai');
+const { embed } = require('../services/embeddings');
 const { renderTryOn } = require('../services/tryOn');
-const { notify } = require('../services/notifications');
 
-// Searches, AI recommendations, the AI design studio and the virtual try-on.
+// Searches, AI recommendations and the virtual try-on.
 const router = express.Router();
 const customerOnly = requireRole('customer');
 
@@ -21,7 +19,8 @@ const customerOnly = requireRole('customer');
 router.post('/searches', customerOnly, async (req, res) => {
   const query = v.text(req.body.query, 'Search', { max: 100 });
   if (query.length < 3) throw badRequest('A search needs at least 3 characters');
-  const search = await Search.create({ customer_id: req.user.id, query, category: categorize(query) });
+  const [embedding] = (await embed([query], 'RETRIEVAL_QUERY')) || [];
+  const search = await Search.create({ customer_id: req.user.id, query, category: categorize(query), embedding });
   res.status(201).json(search);
 });
 
@@ -43,46 +42,13 @@ router.get('/searches/trending', customerOnly, async (req, res) => {
 });
 
 // ── Recommendations ────────────────────────────────────────────────────────
-// With a query, the designs closest to it. Without one, designs that match the
-// customer's own recent searches.
+// With a query, the designs closest to it. Without one, designs close to the
+// customer's own recent searches and saved designs.
 router.get('/ai/recommendations', customerOnly, async (req, res) => {
   const limit = v.number(req.query.limit, 'Limit', { min: 1, max: 30, integer: true, required: false }) || 6;
   const query = v.optionalText(req.query.query, 'Query', { max: 100 });
-  let queries = query ? [query] : [];
-  if (!query) {
-    const recent = await Search.find({ customer_id: req.user.id }).sort({ created_at: -1 }).limit(5);
-    queries = recent.map((s) => s.query);
-  }
-  res.json(await recommend(queries, limit));
-});
-
-// ── AI design studio ───────────────────────────────────────────────────────
-router.post('/ai/designs', customerOnly, async (req, res) => {
-  const input = {
-    prompt: v.text(req.body.prompt, 'Description', { max: 500 }),
-    category: v.text(req.body.category, 'Category', { max: 40 }),
-    color: v.text(req.body.color, 'Colour', { max: 40 }),
-    fabric: v.text(req.body.fabric, 'Fabric', { max: 40 }),
-  };
-  const designs = [];
-  for (const concept of await designConcepts(input)) {
-    designs.push(await AiDesign.create({ _id: await nextId('AID', { start: 1001 }), customer_id: req.user.id, ...input, ...concept }));
-  }
-  res.status(201).json(designs);
-});
-
-router.post('/ai/designs/:id/send', customerOnly, async (req, res) => {
-  const design = await AiDesign.findOne({ _id: req.params.id, customer_id: req.user.id });
-  if (!design) throw notFound('Design not found');
-  const tailor = await User.findOne({ _id: v.text(req.body.tailor_id, 'Tailor'), role: 'tailor', deleted_at: null });
-  if (!tailor) throw notFound('Tailor not found');
-  design.sent_to.addToSet(tailor.id);
-  await design.save();
-  await notify(
-    tailor.id, 'message', 'Design Shared With You',
-    `${req.user.name} sent "${design.title}": ${design.description}`,
-  );
-  res.status(204).end();
+  const searches = query ? [] : await Search.find({ customer_id: req.user.id }).sort({ created_at: -1 }).limit(5);
+  res.json(await recommend({ query, searches, saved: req.user.wishlist, limit }));
 });
 
 // ── Virtual try-on ─────────────────────────────────────────────────────────

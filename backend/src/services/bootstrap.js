@@ -1,9 +1,11 @@
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const config = require('../config');
 const Admin = require('../models/Admin');
 const Settings = require('../models/Settings');
 const Design = require('../models/Design');
-const DESIGNS = require('../data/designs');
+const { DESIGNS, ALIASES } = require('../data/designs');
+const { embed, modelId } = require('./embeddings');
 const { searchPhotos } = require('./stockPhotos');
 
 // Makes sure a new database can be used: the platform settings exist and, when
@@ -30,6 +32,7 @@ async function ensureCatalogue() {
   }
   // An earlier version pointed at a picture service that no longer answers.
   await Design.updateMany({ image_url: /pollinations/ }, { image_url: null });
+  await ensureEmbeddings();
   if (!config.pixabayApiKey) return;
   const used = new Set((await Design.find({ image_url: { $ne: null } })).map((d) => d.image_url));
   for (const design of await Design.find({ image_url: null }).sort({ _id: 1 })) {
@@ -40,4 +43,20 @@ async function ensureCatalogue() {
   }
 }
 
-module.exports = { ensureAdmin, ensureCatalogue };
+const embeddingText = (design) => `${design.name}. ${design.category} wear. ${ALIASES[design.category]}. ${design.tags.join(' ')}`;
+const embeddingKey = (design) => `${modelId()}|${crypto.createHash('sha1').update(embeddingText(design)).digest('hex').slice(0, 10)}`;
+
+// Gives every design the embedding the AI recommendations compare searches with. A
+// design is redone when its text or the model changed. Needs GEMINI_API_KEY; a
+// failure leaves the designs as they are and recommendations use keywords.
+async function ensureEmbeddings() {
+  const stale = (await Design.find()).filter((d) => !d.embedding?.length || d.embedding_model !== embeddingKey(d));
+  if (!stale.length) return;
+  const vectors = await embed(stale.map(embeddingText), 'RETRIEVAL_DOCUMENT');
+  if (!vectors) return;
+  for (const [i, design] of stale.entries()) {
+    await Design.updateOne({ _id: design.id }, { embedding: vectors[i], embedding_model: embeddingKey(design) });
+  }
+}
+
+module.exports = { ensureAdmin, ensureCatalogue, ensureEmbeddings };

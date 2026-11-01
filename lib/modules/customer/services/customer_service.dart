@@ -204,20 +204,6 @@ class CustomerService {
   Future<List<DesignModel>> getRecommendations({String? query, int limit = 6}) async =>
       listOf(await _api.get('/ai/recommendations', query: {'query': query?.trim(), 'limit': limit}), DesignModel.fromJson);
 
-  // ── AI design studio ────────────────────────────────────────────────────────
-  // POST /api/ai/designs
-  Future<List<DesignConcept>> generateDesigns({
-    required String prompt, required String category,
-    required String color, required String fabric,
-  }) async =>
-      listOf(await _api.post('/ai/designs', {
-        'prompt': prompt, 'category': category, 'color': color, 'fabric': fabric,
-      }), DesignConcept.fromJson);
-
-  // POST /api/ai/designs/:id/send
-  Future<void> sendDesignToTailor(String designId, String tailorId) =>
-      _api.post('/ai/designs/$designId/send', {'tailor_id': tailorId});
-
   // ── Virtual try-on ──────────────────────────────────────────────────────────
   // POST /api/ai/try-on, as multipart form data: the customer's photo and the
   // garment's photo. Waits for the rendered image, which takes up to a minute.
