@@ -1,22 +1,30 @@
 const config = require('../config');
 
-// Real photos for designs, found by searching Pexels (pexels.com/api, free key).
-// Without PEXELS_API_KEY, or when Pexels does not answer, there are no photos and
+// Real photos for designs, found by searching Pixabay (pixabay.com/api/docs, free key).
+// Without PIXABAY_API_KEY, or when Pixabay does not answer, there are no photos and
 // the apps show their icons instead. A failure never stops what the caller is doing.
 async function searchPhotos(query, count) {
-  if (!config.pexelsApiKey) return [];
+  if (!config.pixabayApiKey) return [];
   try {
-    const url = new URL('https://api.pexels.com/v1/search');
-    url.search = new URLSearchParams({ query, per_page: String(Math.min(Math.max(count, 1), 80)), orientation: 'portrait' }).toString();
-    const response = await fetch(url, { headers: { Authorization: config.pexelsApiKey }, signal: AbortSignal.timeout(8000) });
+    const url = new URL('https://pixabay.com/api/');
+    url.search = new URLSearchParams({
+      key: config.pixabayApiKey,
+      q: query.slice(0, 100),
+      image_type: 'photo',
+      orientation: 'vertical',
+      category: 'fashion',
+      safesearch: 'true',
+      per_page: String(Math.min(Math.max(count, 3), 200)),
+    }).toString();
+    const response = await fetch(url, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
     if (!response.ok) {
-      console.error(`Pexels refused the search "${query}" (${response.status})`);
+      console.error(`Pixabay refused the search "${query}" (${response.status})`);
       return [];
     }
-    const { photos = [] } = await response.json();
-    return photos.map((photo) => photo.src?.portrait || photo.src?.large).filter(Boolean);
+    const { hits = [] } = await response.json();
+    return hits.map((hit) => hit.webformatURL).filter(Boolean);
   } catch (error) {
-    console.error(`Pexels search "${query}" failed: ${error.message}`);
+    console.error(`Pixabay search "${query}" failed: ${error.message}`);
     return [];
   }
 }

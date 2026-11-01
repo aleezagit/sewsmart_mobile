@@ -141,7 +141,7 @@ test('a new database gets its first admin from the environment, once', async () 
   }
 });
 
-test('a new database gets the design catalogue, with a different Pexels photo each when there is a key', async () => {
+test('a new database gets the design catalogue, with a different Pixabay photo each when there is a key', async () => {
   const config = require('../src/config');
   const { ensureCatalogue } = require('../src/services/bootstrap');
   const Design = require('../src/models/Design');
@@ -150,8 +150,8 @@ test('a new database gets the design catalogue, with a different Pexels photo ea
   global.fetch = async () => {
     calls += 1;
     // The same two photos for every search, so each design has to take a new one.
-    const photos = Array.from({ length: 40 }, (_, i) => ({ src: { portrait: `https://images.pexels.com/photos/${i + 1}.jpeg` } }));
-    return { ok: true, status: 200, json: async () => ({ photos }) };
+    const photos = Array.from({ length: 40 }, (_, i) => ({ webformatURL: `https://pixabay.com/get/photo-${i + 1}_640.jpg` }));
+    return { ok: true, status: 200, json: async () => ({ hits: photos }) };
   };
   try {
     await Design.deleteMany({});
@@ -163,11 +163,11 @@ test('a new database gets the design catalogue, with a different Pexels photo ea
 
     // A picture address from the earlier picture service is cleared.
     await Design.updateOne({ _id: 'D001' }, { image_url: 'https://image.pollinations.ai/prompt/x' });
-    config.pexelsApiKey = 'pexels-key';
+    config.pixabayApiKey = 'pixabay-key';
     await ensureCatalogue();
     const photos = (await Design.find().sort({ _id: 1 })).map((d) => d.image_url);
     assert.strictEqual(new Set(photos).size, total);
-    assert.ok(photos.every((url) => url.startsWith('https://images.pexels.com/photos/')));
+    assert.ok(photos.every((url) => url.startsWith('https://pixabay.com/get/photo-')));
 
     // Everything has a photo now, so starting again asks for nothing.
     calls = 0;
@@ -175,6 +175,6 @@ test('a new database gets the design catalogue, with a different Pexels photo ea
     assert.strictEqual(calls, 0);
   } finally {
     global.fetch = realFetch;
-    config.pexelsApiKey = undefined;
+    config.pixabayApiKey = undefined;
   }
 });

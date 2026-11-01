@@ -21,7 +21,7 @@ async function ensureAdmin() {
 }
 
 // The design catalogue that AI recommendations and the wishlist draw from.
-// Designs without a photo get one from Pexels, a different one each, when a key
+// Designs without a photo get one from Pixabay, a different one each, when a key
 // is set; the others are retried at the next start. Safe to run at every start-up.
 async function ensureCatalogue() {
   for (const [i, [name, category, min, max]] of DESIGNS.entries()) {
@@ -30,7 +30,7 @@ async function ensureCatalogue() {
   }
   // An earlier version pointed at a picture service that no longer answers.
   await Design.updateMany({ image_url: /pollinations/ }, { image_url: null });
-  if (!config.pexelsApiKey) return;
+  if (!config.pixabayApiKey) return;
   const used = new Set((await Design.find({ image_url: { $ne: null } })).map((d) => d.image_url));
   for (const design of await Design.find({ image_url: null }).sort({ _id: 1 })) {
     const photo = (await searchPhotos(`${design.name} ${design.category} dress`, 10)).find((url) => !used.has(url));

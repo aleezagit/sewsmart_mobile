@@ -33,15 +33,19 @@ Render's free plan blocks SMTP, so the API sends email through Brevo's web API.
 Check the spam folder when testing. Without `BREVO_API_KEY` the code is only
 written to the server's log.
 
-## 4. Design photos (Pexels)
+## 4. Design photos (Pixabay)
 
 Designs in AI Recommendations and the AI Design Studio show real photos found
-on Pexels. Without a key the apps show icons instead.
+on Pixabay. Without a key the apps show icons instead.
 
-1. Create a free account at pexels.com and open pexels.com/api.
-2. Request an API key (free, 200 requests an hour) and copy it.
-3. Set `PEXELS_API_KEY` on Render. The 24 catalogue designs get their photos
+1. Create a free account at pixabay.com and open pixabay.com/api/docs.
+2. The key is shown on that page once you are signed in (100 requests a minute).
+3. Set `PIXABAY_API_KEY` on Render. The 24 catalogue designs get their photos
    the next time the server starts.
+
+Pixabay asks apps to credit it (the screens say "Photos by Pixabay") and to
+copy photos to their own storage for long-term use. This project keeps their
+addresses, which is fine for a demo.
 
 ## 5. The API (Render)
 
@@ -55,7 +59,7 @@ on Pexels. Without a key the apps show icons instead.
 | `MONGODB_URI` | the Atlas connection string |
 | `ADMIN_EMAIL` and `ADMIN_PASSWORD` | the first admin's sign-in (8 or more characters) |
 | `BREVO_API_KEY`, `MAIL_FROM` | from Brevo (step 3) |
-| `PEXELS_API_KEY` | from Pexels (step 4) |
+| `PIXABAY_API_KEY` | from Pixabay (step 4) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | from LiveKit |
 
 4. Deploy. When it is live, open `https://YOUR-SERVICE.onrender.com/api/health`.

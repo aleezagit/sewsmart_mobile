@@ -439,7 +439,7 @@ class _AiDesignScreenState extends State<AiDesignScreen> {
         _SectionLabel(
             'Generated Designs', Icons.auto_awesome_rounded, AppColors.primaryLight),
         const SizedBox(height: 4),
-        Text('Tap any design to select it  ·  Photos by Pexels',
+        Text('Tap any design to select it  ·  Photos by Pixabay',
             style: GoogleFonts.poppins(
                 color: AppColors.textMuted, fontSize: 11)),
         const SizedBox(height: 12),

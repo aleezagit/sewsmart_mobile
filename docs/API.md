@@ -533,12 +533,12 @@ With `query`, the designs most similar to it. Without `query`, designs picked fr
     "category": "Bridal",
     "price_min": 4500,
     "price_max": 8000,
-    "image_url": "https://images.pexels.com/photos/1.jpeg"
+    "image_url": "https://pixabay.com/get/photo-1_640.jpg"
   }
 ]
 ```
 
-`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts. With `PEXELS_API_KEY` set, each gets a different photo found by searching Pexels for its name, and a design that has none yet is retried at the next start. `image_url` is `null` without a key, and the screen then shows its category icon. The app loads the photo straight from that address and credits Pexels on screen.
+`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts. With `PIXABAY_API_KEY` set, each gets a different photo found by searching Pixabay for its name, and a design that has none yet is retried at the next start. `image_url` is `null` without a key, and the screen then shows its category icon. The app loads the photo straight from that address and credits Pixabay on screen.
 
 ### 3.10 AI design studio
 
@@ -563,12 +563,12 @@ Returns `201` with four design concepts.
     "category": "Bridal",
     "color": "Red",
     "fabric": "Silk",
-    "image_url": "https://images.pexels.com/photos/2.jpeg"
+    "image_url": "https://pixabay.com/get/photo-2_640.jpg"
   }
 ]
 ```
 
-Each concept has a photo found by searching Pexels for the colour, fabric, category and the prompt's main words. Asking again starts from a different place in the results, so the photos change. `image_url` is `null` when there is no `PEXELS_API_KEY` or Pexels does not answer.
+Each concept has a photo found by searching Pixabay for the colour, fabric, category and the prompt's main words. Asking again starts from a different place in the results, so the photos change. `image_url` is `null` when there is no `PIXABAY_API_KEY` or Pixabay does not answer.
 
 **`POST /api/ai/designs/:id/send`**
 

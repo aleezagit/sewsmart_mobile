@@ -73,7 +73,7 @@ const FILLER = new Set(['with', 'and', 'for', 'that', 'this', 'from', 'have', 'l
 
 // Four design concepts from a prompt and the picked style, each with a photo.
 // Each concept takes the prompt's details in a different direction. The photos
-// come from a Pexels search for the colour, fabric, category and the prompt's
+// come from a Pixabay search for the colour, fabric, category and the prompt's
 // main words, and a new start point means asking again shows new photos.
 async function designConcepts({ prompt, category, color, fabric }) {
   const taken = new Set(words(`${color} ${fabric} ${category}`));

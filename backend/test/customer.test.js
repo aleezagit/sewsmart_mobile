@@ -75,15 +75,15 @@ test('the AI design studio sends a concept to a tailor', async () => {
   assert.strictEqual(notes.body[0].title, 'Design Shared With You');
 });
 
-test('design concepts get Pexels photos, or none when there is no key or Pexels fails', async () => {
+test('design concepts get Pixabay photos, or none when there is no key or Pixabay fails', async () => {
   const config = require('../src/config');
   const realFetch = global.fetch;
   const queries = [];
   let status = 200;
   global.fetch = async (url, options) => {
-    queries.push({ query: new URL(url).searchParams.get('query'), auth: options.headers.Authorization });
-    const photos = Array.from({ length: 12 }, (_, i) => ({ src: { portrait: `https://images.pexels.com/photos/${i + 1}.jpeg` } }));
-    return { ok: status === 200, status, json: async () => ({ photos }) };
+    queries.push({ query: new URL(url).searchParams.get('q'), key: new URL(url).searchParams.get('key') });
+    const photos = Array.from({ length: 12 }, (_, i) => ({ webformatURL: `https://pixabay.com/get/photo-${i + 1}_640.jpg` }));
+    return { ok: status === 200, status, json: async () => ({ hits: photos }) };
   };
   const body = { prompt: 'Red lehenga with golden embroidery', category: 'Bridal', color: 'Red', fabric: 'Silk' };
   const errors = console.error;
@@ -92,12 +92,12 @@ test('design concepts get Pexels photos, or none when there is no key or Pexels 
     assert.deepStrictEqual(none.body.map((d) => d.image_url), [null, null, null, null]);
     assert.strictEqual(queries.length, 0);
 
-    config.pexelsApiKey = 'pexels-key';
+    config.pixabayApiKey = 'pixabay-key';
     const withKey = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
     const photos = withKey.body.map((d) => d.image_url);
     assert.strictEqual(new Set(photos).size, 4);
-    assert.ok(photos.every((url) => /^https:\/\/images\.pexels\.com\/photos\/\d+\.jpeg$/.test(url)));
-    assert.deepStrictEqual(queries, [{ query: 'Red Silk Bridal dress lehenga golden embroidery', auth: 'pexels-key' }]);
+    assert.ok(photos.every((url) => /^https:\/\/pixabay\.com\/get\/photo-\d+_640\.jpg$/.test(url)));
+    assert.deepStrictEqual(queries, [{ query: 'Red Silk Bridal dress lehenga golden embroidery', key: 'pixabay-key' }]);
 
     status = 429;
     console.error = () => {};
@@ -106,7 +106,7 @@ test('design concepts get Pexels photos, or none when there is no key or Pexels 
   } finally {
     console.error = errors;
     global.fetch = realFetch;
-    config.pexelsApiKey = undefined;
+    config.pixabayApiKey = undefined;
   }
 });
 

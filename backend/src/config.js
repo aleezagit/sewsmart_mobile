@@ -37,8 +37,8 @@ module.exports = {
     apiKey: env.LIVEKIT_API_KEY,
     apiSecret: env.LIVEKIT_API_SECRET,
   },
-  // Pexels API key (free) for the photos shown with designs. Without it the apps show icons.
-  pexelsApiKey: env.PEXELS_API_KEY,
+  // Pixabay API key (free) for the photos shown with designs. Without it the apps show icons.
+  pixabayApiKey: env.PIXABAY_API_KEY,
   tryOnServiceUrl: (env.TRYON_SERVICE_URL || '').replace(/\/$/, ''),
   admin: {
     email: env.ADMIN_EMAIL,
