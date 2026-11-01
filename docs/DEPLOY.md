@@ -33,7 +33,17 @@ Render's free plan blocks SMTP, so the API sends email through Brevo's web API.
 Check the spam folder when testing. Without `BREVO_API_KEY` the code is only
 written to the server's log.
 
-## 4. The API (Render)
+## 4. Design photos (Pexels)
+
+Designs in AI Recommendations and the AI Design Studio show real photos found
+on Pexels. Without a key the apps show icons instead.
+
+1. Create a free account at pexels.com and open pexels.com/api.
+2. Request an API key (free, 200 requests an hour) and copy it.
+3. Set `PEXELS_API_KEY` on Render. The 24 catalogue designs get their photos
+   the next time the server starts.
+
+## 5. The API (Render)
 
 1. Create an account at render.com and connect your GitHub account.
 2. **New, Blueprint**, choose this repository and the branch to deploy. Render
@@ -45,12 +55,13 @@ written to the server's log.
 | `MONGODB_URI` | the Atlas connection string |
 | `ADMIN_EMAIL` and `ADMIN_PASSWORD` | the first admin's sign-in (8 or more characters) |
 | `BREVO_API_KEY`, `MAIL_FROM` | from Brevo (step 3) |
+| `PEXELS_API_KEY` | from Pexels (step 4) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | from LiveKit |
 
 4. Deploy. When it is live, open `https://YOUR-SERVICE.onrender.com/api/health`.
    It should show `{"status":"ok"}`. The admin account is created on the first start.
 
-## 5. The apps
+## 6. The apps
 
 - **Phone app:** open the login screen, tap **Server** and enter
   `https://YOUR-SERVICE.onrender.com`. Or build the APK with that address:

@@ -955,7 +955,7 @@ class _SearchBlock extends StatelessWidget {
         ),
         Padding(
           padding: const EdgeInsets.only(left: 36, bottom: 8),
-          child: Text('Similar designs you might love:',
+          child: Text('Similar designs you might love  ·  Photos by Pexels',
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted, fontSize: 11)),
         ),

@@ -70,14 +70,44 @@ test('the AI design studio sends a concept to a tailor', async () => {
     .send({ prompt: 'Red lehenga with golden embroidery', category: 'Bridal', color: 'Red', fabric: 'Silk' }).expect(201);
   assert.strictEqual(designs.body.length, 4);
   assert.match(designs.body[0].description, /Red silk bridal/);
-  // Each concept has its own picture, drawn from the prompt and its style.
-  const pictures = designs.body.map((d) => d.image_url);
-  assert.strictEqual(new Set(pictures).size, 4);
-  assert.match(pictures[0], /^https:\/\/image\.pollinations\.ai\/prompt\/.*Red%20Silk%20Bridal%20outfit%2C%20Red%20lehenga/);
-  assert.match(pictures[0], /width=512&height=768&seed=\d+&nologo=true/);
   await api.post(`/api/ai/designs/${designs.body[0].id}/send`).set(customer.auth).send({ tailor_id: tailor.user.id }).expect(204);
   const notes = await api.get('/api/notifications').set(tailor.auth).expect(200);
   assert.strictEqual(notes.body[0].title, 'Design Shared With You');
+});
+
+test('design concepts get Pexels photos, or none when there is no key or Pexels fails', async () => {
+  const config = require('../src/config');
+  const realFetch = global.fetch;
+  const queries = [];
+  let status = 200;
+  global.fetch = async (url, options) => {
+    queries.push({ query: new URL(url).searchParams.get('query'), auth: options.headers.Authorization });
+    const photos = Array.from({ length: 12 }, (_, i) => ({ src: { portrait: `https://images.pexels.com/photos/${i + 1}.jpeg` } }));
+    return { ok: status === 200, status, json: async () => ({ photos }) };
+  };
+  const body = { prompt: 'Red lehenga with golden embroidery', category: 'Bridal', color: 'Red', fabric: 'Silk' };
+  const errors = console.error;
+  try {
+    const none = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
+    assert.deepStrictEqual(none.body.map((d) => d.image_url), [null, null, null, null]);
+    assert.strictEqual(queries.length, 0);
+
+    config.pexelsApiKey = 'pexels-key';
+    const withKey = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
+    const photos = withKey.body.map((d) => d.image_url);
+    assert.strictEqual(new Set(photos).size, 4);
+    assert.ok(photos.every((url) => /^https:\/\/images\.pexels\.com\/photos\/\d+\.jpeg$/.test(url)));
+    assert.deepStrictEqual(queries, [{ query: 'Red Silk Bridal dress lehenga golden embroidery', auth: 'pexels-key' }]);
+
+    status = 429;
+    console.error = () => {};
+    const failed = await api.post('/api/ai/designs').set(customer.auth).send(body).expect(201);
+    assert.deepStrictEqual(failed.body.map((d) => d.image_url), [null, null, null, null]);
+  } finally {
+    console.error = errors;
+    global.fetch = realFetch;
+    config.pexelsApiKey = undefined;
+  }
 });
 
 test('try-on answers 503 while the try-on service is not configured', async () => {

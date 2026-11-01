@@ -37,9 +37,8 @@ module.exports = {
     apiKey: env.LIVEKIT_API_KEY,
     apiSecret: env.LIVEKIT_API_SECRET,
   },
-  // Where AI design pictures come from: a text-to-image service that takes the
-  // description in the URL path. Pollinations is free and needs no key.
-  imageApiUrl: (env.IMAGE_API_URL || 'https://image.pollinations.ai/prompt').replace(/\/$/, ''),
+  // Pexels API key (free) for the photos shown with designs. Without it the apps show icons.
+  pexelsApiKey: env.PEXELS_API_KEY,
   tryOnServiceUrl: (env.TRYON_SERVICE_URL || '').replace(/\/$/, ''),
   admin: {
     email: env.ADMIN_EMAIL,

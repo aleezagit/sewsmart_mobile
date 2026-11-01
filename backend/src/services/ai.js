@@ -1,6 +1,6 @@
 const crypto = require('crypto');
 const Design = require('../models/Design');
-const { designImageUrl } = require('./designImages');
+const { searchPhotos } = require('./stockPhotos');
 
 // Words that point to a design category. A query takes the category with the
 // most matching words, or General when none match.
@@ -61,8 +61,6 @@ async function recommend(queries, limit) {
     .slice(0, limit);
 }
 
-// Four design concepts from a prompt and the picked style, each with a picture.
-// Each concept takes the prompt's details in a different direction.
 const STYLES = [
   { title: 'Classic Elegance', angle: 'traditional cut with balanced, refined detailing' },
   { title: 'Modern Twist', angle: 'contemporary silhouette with clean lines and a modern neckline' },
@@ -70,14 +68,26 @@ const STYLES = [
   { title: 'Minimalist', angle: 'simple structure that lets the fabric and colour lead' },
 ];
 
-function designConcepts({ prompt, category, color, fabric }) {
+// Small words that tell a photo search nothing.
+const FILLER = new Set(['with', 'and', 'for', 'that', 'this', 'from', 'have', 'like', 'want']);
+
+// Four design concepts from a prompt and the picked style, each with a photo.
+// Each concept takes the prompt's details in a different direction. The photos
+// come from a Pexels search for the colour, fabric, category and the prompt's
+// main words, and a new start point means asking again shows new photos.
+async function designConcepts({ prompt, category, color, fabric }) {
+  const taken = new Set(words(`${color} ${fabric} ${category}`));
+  const keywords = [...new Set(words(prompt).filter((w) => w.length > 3 && !FILLER.has(w) && !taken.has(w)))].slice(0, 3);
   const details = words(prompt).filter((w) => w.length > 3).slice(0, 6).join(', ');
-  // A new seed each time, so asking again gives new pictures.
-  const seed = crypto.randomInt(1_000_000);
+  let photos = await searchPhotos(`${color} ${fabric} ${category} dress ${keywords.join(' ')}`.trim(), 20);
+  if (photos.length < STYLES.length) {
+    photos = [...new Set([...photos, ...(await searchPhotos(`${category} dress`, 20))])];
+  }
+  const start = photos.length > STYLES.length ? crypto.randomInt(photos.length - STYLES.length + 1) : 0;
   return STYLES.map(({ title, angle }, i) => ({
     title,
     description: `${color} ${fabric.toLowerCase()} ${category.toLowerCase()} outfit: ${angle}${details ? `. Inspired by: ${details}` : ''}.`,
-    image_url: designImageUrl(`${color} ${fabric} ${category} outfit, ${prompt}, ${angle}`, seed + i),
+    image_url: photos.length ? photos[(start + i) % photos.length] : null,
   }));
 }
 

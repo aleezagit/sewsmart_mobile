@@ -65,7 +65,7 @@ router.post('/ai/designs', customerOnly, async (req, res) => {
     fabric: v.text(req.body.fabric, 'Fabric', { max: 40 }),
   };
   const designs = [];
-  for (const concept of designConcepts(input)) {
+  for (const concept of await designConcepts(input)) {
     designs.push(await AiDesign.create({ _id: await nextId('AID', { start: 1001 }), customer_id: req.user.id, ...input, ...concept }));
   }
   res.status(201).json(designs);

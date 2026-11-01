@@ -533,12 +533,12 @@ With `query`, the designs most similar to it. Without `query`, designs picked fr
     "category": "Bridal",
     "price_min": 4500,
     "price_max": 8000,
-    "image_url": "https://image.pollinations.ai/prompt/Heavy%20Bridal%20Lehenga...?width=512&height=768&seed=100&nologo=true&model=flux"
+    "image_url": "https://images.pexels.com/photos/1.jpeg"
   }
 ]
 ```
 
-`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts, each with a picture drawn by a text-to-image service from its name (`IMAGE_API_URL`, free Pollinations by default). The picture is loaded by the app straight from that address, and the screen shows its category icon while it loads or if it fails.
+`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts. With `PEXELS_API_KEY` set, each gets a different photo found by searching Pexels for its name, and a design that has none yet is retried at the next start. `image_url` is `null` without a key, and the screen then shows its category icon. The app loads the photo straight from that address and credits Pexels on screen.
 
 ### 3.10 AI design studio
 
@@ -563,12 +563,12 @@ Returns `201` with four design concepts.
     "category": "Bridal",
     "color": "Red",
     "fabric": "Silk",
-    "image_url": "https://image.pollinations.ai/prompt/Red%20Silk%20Bridal%20outfit...?width=512&height=768&seed=48213&nologo=true&model=flux"
+    "image_url": "https://images.pexels.com/photos/2.jpeg"
   }
 ]
 ```
 
-Each concept has a picture drawn from the prompt, the colour, the fabric and the concept's style. The seed changes with every request, so asking again gives new pictures.
+Each concept has a photo found by searching Pexels for the colour, fabric, category and the prompt's main words. Asking again starts from a different place in the results, so the photos change. `image_url` is `null` when there is no `PEXELS_API_KEY` or Pexels does not answer.
 
 **`POST /api/ai/designs/:id/send`**
 

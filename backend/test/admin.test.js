@@ -141,15 +141,40 @@ test('a new database gets its first admin from the environment, once', async () 
   }
 });
 
-test('a new database gets the design catalogue with pictures, and starting again changes nothing', async () => {
+test('a new database gets the design catalogue, with a different Pexels photo each when there is a key', async () => {
+  const config = require('../src/config');
   const { ensureCatalogue } = require('../src/services/bootstrap');
   const Design = require('../src/models/Design');
-  await Design.deleteMany({});
-  await ensureCatalogue();
-  const before = await Design.find().sort({ _id: 1 });
-  assert.strictEqual(before.length, require('../src/data/designs').length);
-  assert.ok(before.every((d) => /^https:\/\/image\.pollinations\.ai\/prompt\//.test(d.image_url)));
-  await ensureCatalogue();
-  const after = await Design.find().sort({ _id: 1 });
-  assert.deepStrictEqual(after.map((d) => [d.id, d.image_url]), before.map((d) => [d.id, d.image_url]));
+  const realFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls += 1;
+    // The same two photos for every search, so each design has to take a new one.
+    const photos = Array.from({ length: 40 }, (_, i) => ({ src: { portrait: `https://images.pexels.com/photos/${i + 1}.jpeg` } }));
+    return { ok: true, status: 200, json: async () => ({ photos }) };
+  };
+  try {
+    await Design.deleteMany({});
+    await ensureCatalogue();
+    const total = require('../src/data/designs').length;
+    assert.strictEqual(await Design.countDocuments(), total);
+    assert.strictEqual(await Design.countDocuments({ image_url: null }), total);
+    assert.strictEqual(calls, 0);
+
+    // A picture address from the earlier picture service is cleared.
+    await Design.updateOne({ _id: 'D001' }, { image_url: 'https://image.pollinations.ai/prompt/x' });
+    config.pexelsApiKey = 'pexels-key';
+    await ensureCatalogue();
+    const photos = (await Design.find().sort({ _id: 1 })).map((d) => d.image_url);
+    assert.strictEqual(new Set(photos).size, total);
+    assert.ok(photos.every((url) => url.startsWith('https://images.pexels.com/photos/')));
+
+    // Everything has a photo now, so starting again asks for nothing.
+    calls = 0;
+    await ensureCatalogue();
+    assert.strictEqual(calls, 0);
+  } finally {
+    global.fetch = realFetch;
+    config.pexelsApiKey = undefined;
+  }
 });
