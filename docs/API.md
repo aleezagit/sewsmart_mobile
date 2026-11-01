@@ -533,12 +533,12 @@ With `query`, the designs most similar to it. Without `query`, designs picked fr
     "category": "Bridal",
     "price_min": 4500,
     "price_max": 8000,
-    "image_url": null
+    "image_url": "https://image.pollinations.ai/prompt/Heavy%20Bridal%20Lehenga...?width=512&height=768&seed=100&nologo=true&model=flux"
   }
 ]
 ```
 
-`category` is Bridal, Formal, Eastern, Casual, Western or General. The screen picks a colour from it.
+`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts, each with a picture drawn by a text-to-image service from its name (`IMAGE_API_URL`, free Pollinations by default). The picture is loaded by the app straight from that address, and the screen shows its category icon while it loads or if it fails.
 
 ### 3.10 AI design studio
 
@@ -563,10 +563,12 @@ Returns `201` with four design concepts.
     "category": "Bridal",
     "color": "Red",
     "fabric": "Silk",
-    "image_url": "https://example.com/uploads/designs/aid1001.png"
+    "image_url": "https://image.pollinations.ai/prompt/Red%20Silk%20Bridal%20outfit...?width=512&height=768&seed=48213&nologo=true&model=flux"
   }
 ]
 ```
+
+Each concept has a picture drawn from the prompt, the colour, the fabric and the concept's style. The seed changes with every request, so asking again gives new pictures.
 
 **`POST /api/ai/designs/:id/send`**
 
@@ -1608,7 +1610,6 @@ URL-encode the name. Returns `204`. Tailors that already use the category keep i
 These parts of the admin panel are outside this draft, because the screen or the data behind them is not ready.
 
 - Document files on a verification request. The cards show CNIC front, CNIC back and business proof or driving licence, but nothing is uploaded yet. Add a `documents` array of `{ "type", "url" }` once file upload exists.
-- An `image_url` on designs. The cards show a coloured placeholder.
 - Status dates for the order timeline. The dialog works them out from the current status and repeats the order date.
 - The change badges on the stat cards, such as +12%. They are fixed text.
 - The Export buttons. They only show a message.

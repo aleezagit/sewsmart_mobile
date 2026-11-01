@@ -140,3 +140,16 @@ test('a new database gets its first admin from the environment, once', async () 
     Object.assign(config.admin, saved);
   }
 });
+
+test('a new database gets the design catalogue with pictures, and starting again changes nothing', async () => {
+  const { ensureCatalogue } = require('../src/services/bootstrap');
+  const Design = require('../src/models/Design');
+  await Design.deleteMany({});
+  await ensureCatalogue();
+  const before = await Design.find().sort({ _id: 1 });
+  assert.strictEqual(before.length, require('../src/data/designs').length);
+  assert.ok(before.every((d) => /^https:\/\/image\.pollinations\.ai\/prompt\//.test(d.image_url)));
+  await ensureCatalogue();
+  const after = await Design.find().sort({ _id: 1 });
+  assert.deepStrictEqual(after.map((d) => [d.id, d.image_url]), before.map((d) => [d.id, d.image_url]));
+});

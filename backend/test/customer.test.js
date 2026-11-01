@@ -70,6 +70,11 @@ test('the AI design studio sends a concept to a tailor', async () => {
     .send({ prompt: 'Red lehenga with golden embroidery', category: 'Bridal', color: 'Red', fabric: 'Silk' }).expect(201);
   assert.strictEqual(designs.body.length, 4);
   assert.match(designs.body[0].description, /Red silk bridal/);
+  // Each concept has its own picture, drawn from the prompt and its style.
+  const pictures = designs.body.map((d) => d.image_url);
+  assert.strictEqual(new Set(pictures).size, 4);
+  assert.match(pictures[0], /^https:\/\/image\.pollinations\.ai\/prompt\/.*Red%20Silk%20Bridal%20outfit%2C%20Red%20lehenga/);
+  assert.match(pictures[0], /width=512&height=768&seed=\d+&nologo=true/);
   await api.post(`/api/ai/designs/${designs.body[0].id}/send`).set(customer.auth).send({ tailor_id: tailor.user.id }).expect(204);
   const notes = await api.get('/api/notifications').set(tailor.auth).expect(200);
   assert.strictEqual(notes.body[0].title, 'Design Shared With You');

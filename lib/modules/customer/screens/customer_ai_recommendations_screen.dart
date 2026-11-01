@@ -675,7 +675,7 @@ class _CustomerAiRecommendationsScreenState
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.05,
+          childAspectRatio: 0.72,
         ),
         itemCount: cards.length,
         itemBuilder: (_, i) => _DesignTile(
@@ -727,6 +727,21 @@ class _CustomerAiRecommendationsScreenState
               ),
             ),
             const SizedBox(height: 20),
+            // The design's picture
+            if (card.design.imageUrl != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: SizedBox(
+                  height: 240,
+                  width: double.infinity,
+                  child: NetworkPicture(
+                    url: card.design.imageUrl,
+                    fallback: Container(color: card.color.withValues(alpha: 0.1), child: Icon(card.icon, color: card.color, size: 40)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             // Icon + name row
             Row(children: [
               Container(
@@ -946,7 +961,7 @@ class _SearchBlock extends StatelessWidget {
         ),
         // ── Horizontal card strip ─────────────────────────────────────────────
         SizedBox(
-          height: 154,
+          height: 236,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.only(left: 16, right: 8),
@@ -985,7 +1000,7 @@ class _DesignTile extends StatelessWidget {
       child: Container(
         width: width,
         margin: const EdgeInsets.only(right: 10, bottom: 2),
-        padding: const EdgeInsets.all(12),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -1002,56 +1017,47 @@ class _DesignTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 38, height: 38,
-              decoration: BoxDecoration(
-                color: card.color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
+            Expanded(
+              child: NetworkPicture(
+                url: card.design.imageUrl,
+                fallback: Center(child: Icon(card.icon, color: card.color, size: 30)),
               ),
-              child: Icon(card.icon, color: card.color, size: 20),
             ),
-            const SizedBox(height: 8),
-            Text(card.name,
-                style: GoogleFonts.poppins(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-            const Spacer(),
-            Text(card.price,
-                style: GoogleFonts.poppins(
-                    color: card.color,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 10)),
-            const SizedBox(height: 4),
-            Row(children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: card.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(card.category,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(card.name,
+                      style: GoogleFonts.poppins(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(card.price,
                       style: GoogleFonts.poppins(
                           color: card.color,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600)),
-                ),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: card.color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(card.category,
+                        style: GoogleFonts.poppins(
+                            color: card.color,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              Container(
-                width: 24, height: 24,
-                decoration: BoxDecoration(
-                  color: card.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Icon(Icons.arrow_forward_rounded,
-                    color: card.color, size: 13),
-              ),
-            ]),
+            ),
           ],
         ),
       ),

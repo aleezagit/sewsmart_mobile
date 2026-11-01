@@ -358,3 +358,31 @@ class LoadError extends StatelessWidget {
     ]),
   ));
 }
+
+// A picture from the web, with a spinner while it loads. [fallback] shows when
+// there is no address or the picture cannot be loaded. AI pictures can take a
+// few seconds to be drawn.
+class NetworkPicture extends StatelessWidget {
+  final String? url;
+  final Widget fallback;
+  const NetworkPicture({super.key, required this.url, required this.fallback});
+
+  @override
+  Widget build(BuildContext context) {
+    final address = url;
+    if (address == null || address.isEmpty) return fallback;
+    return Image.network(
+      address,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      loadingBuilder: (_, child, progress) => progress == null
+          ? child
+          : Stack(fit: StackFit.expand, children: [
+              fallback,
+              Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2))),
+            ]),
+      errorBuilder: (_, _, _) => fallback,
+    );
+  }
+}

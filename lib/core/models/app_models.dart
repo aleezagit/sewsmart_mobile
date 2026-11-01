@@ -468,15 +468,16 @@ class TrendingSearch {
 // ── AI Design Studio ──────────────────────────────────────────────────────────
 class DesignConcept {
   final String id, title, description, category, color, fabric;
+  final String? imageUrl;
 
   const DesignConcept({
     required this.id, required this.title, required this.description,
-    required this.category, required this.color, required this.fabric,
+    required this.category, required this.color, required this.fabric, this.imageUrl,
   });
 
   factory DesignConcept.fromJson(Map<String, dynamic> j) => DesignConcept(
     id: j['id'], title: j['title'], description: j['description'] ?? '',
-    category: j['category'], color: j['color'], fabric: j['fabric'],
+    category: j['category'], color: j['color'], fabric: j['fabric'], imageUrl: j['image_url'],
   );
 }
 

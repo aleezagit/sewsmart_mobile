@@ -649,7 +649,11 @@ class _DesignCard extends StatelessWidget {
       child: Column(
         children: [
           Expanded(
-            child: Center(
+            child: ClipRRect(
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+              child: NetworkPicture(
+                url: concept.imageUrl,
+                fallback: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
@@ -670,6 +674,8 @@ class _DesignCard extends StatelessWidget {
                     ),
                   ),
                 ],
+              ),
+                ),
               ),
             ),
           ),

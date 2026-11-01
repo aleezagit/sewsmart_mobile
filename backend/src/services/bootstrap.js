@@ -2,6 +2,9 @@ const bcrypt = require('bcryptjs');
 const config = require('../config');
 const Admin = require('../models/Admin');
 const Settings = require('../models/Settings');
+const Design = require('../models/Design');
+const DESIGNS = require('../data/designs');
+const { designImageUrl } = require('./designImages');
 
 // Makes sure a new database can be used: the platform settings exist and, when
 // ADMIN_EMAIL and ADMIN_PASSWORD are set, the first admin account exists. A
@@ -17,4 +20,17 @@ async function ensureAdmin() {
   return true;
 }
 
-module.exports = { ensureAdmin };
+// The design catalogue that AI recommendations and the wishlist draw from, with
+// a picture for each design. Safe to run at every start-up.
+async function ensureCatalogue() {
+  for (const [i, [name, category, min, max]] of DESIGNS.entries()) {
+    const tags = [...new Set(name.toLowerCase().match(/[a-z]+/g))];
+    await Design.updateOne(
+      { _id: `D${String(i + 1).padStart(3, '0')}` },
+      { name, category, price_min: min, price_max: max, tags, image_url: designImageUrl(`${name}, ${category} wear, Pakistani fashion`, 100 + i) },
+      { upsert: true },
+    );
+  }
+}
+
+module.exports = { ensureAdmin, ensureCatalogue };

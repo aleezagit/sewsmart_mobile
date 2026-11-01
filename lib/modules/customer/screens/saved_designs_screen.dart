@@ -192,6 +192,7 @@ class _SavedDesignCard extends StatelessWidget {
               children: [
                 Positioned.fill(
                   child: Container(
+                    clipBehavior: Clip.antiAlias,
                     decoration: BoxDecoration(
                       gradient: LinearGradient(
                         begin: Alignment.topLeft,
@@ -200,7 +201,10 @@ class _SavedDesignCard extends StatelessWidget {
                       ),
                       borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                     ),
-                    child: Center(child: Icon(_categoryIcon(design.category), color: color, size: 44)),
+                    child: NetworkPicture(
+                      url: design.imageUrl,
+                      fallback: Center(child: Icon(_categoryIcon(design.category), color: color, size: 44)),
+                    ),
                   ),
                 ),
                 Positioned(

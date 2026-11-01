@@ -1,4 +1,6 @@
+const crypto = require('crypto');
 const Design = require('../models/Design');
+const { designImageUrl } = require('./designImages');
 
 // Words that point to a design category. A query takes the category with the
 // most matching words, or General when none match.
@@ -59,8 +61,8 @@ async function recommend(queries, limit) {
     .slice(0, limit);
 }
 
-// Four design concepts from a prompt and the picked style. Each concept takes
-// the prompt's details in a different direction.
+// Four design concepts from a prompt and the picked style, each with a picture.
+// Each concept takes the prompt's details in a different direction.
 const STYLES = [
   { title: 'Classic Elegance', angle: 'traditional cut with balanced, refined detailing' },
   { title: 'Modern Twist', angle: 'contemporary silhouette with clean lines and a modern neckline' },
@@ -70,9 +72,12 @@ const STYLES = [
 
 function designConcepts({ prompt, category, color, fabric }) {
   const details = words(prompt).filter((w) => w.length > 3).slice(0, 6).join(', ');
-  return STYLES.map(({ title, angle }) => ({
+  // A new seed each time, so asking again gives new pictures.
+  const seed = crypto.randomInt(1_000_000);
+  return STYLES.map(({ title, angle }, i) => ({
     title,
     description: `${color} ${fabric.toLowerCase()} ${category.toLowerCase()} outfit: ${angle}${details ? `. Inspired by: ${details}` : ''}.`,
+    image_url: designImageUrl(`${color} ${fabric} ${category} outfit, ${prompt}, ${angle}`, seed + i),
   }));
 }
 
