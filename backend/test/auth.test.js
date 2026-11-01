@@ -7,16 +7,17 @@ let api;
 before(async () => { api = await setup(); });
 after(teardown);
 
-test('a customer verifies their phone, registers and signs in', async () => {
+test('a customer verifies their email, registers and signs in', async () => {
   const phone = '03001112223';
   const body = { name: 'Hina Malik', email: 'hina@test.com', phone, password: 'pass', role: 'customer', city: 'Lahore' };
   const early = await api.post('/api/auth/register').send(body).expect(400);
-  assert.match(early.body.message, /verify your phone/);
+  assert.match(early.body.message, /verify your email/);
 
-  await api.post('/api/auth/send-otp').send({ phone }).expect(204);
-  const code = await codes.issuePhoneCode(phone);
-  await api.post('/api/auth/verify-otp').send({ phone, otp: '0000' === code ? '1111' : '0000' }).expect(400);
-  await api.post('/api/auth/verify-otp').send({ phone, otp: code }).expect(204);
+  const email = body.email;
+  await api.post('/api/auth/send-otp').send({ email }).expect(204);
+  const code = await codes.issueEmailCode(email);
+  await api.post('/api/auth/verify-otp').send({ email, otp: '0000' === code ? '1111' : '0000' }).expect(400);
+  await api.post('/api/auth/verify-otp').send({ email, otp: code }).expect(204);
 
   const res = await api.post('/api/auth/register').send(body).expect(201);
   assert.ok(res.body.token);
@@ -99,9 +100,9 @@ test('too many wrong passwords are blocked, and only for that account', async ()
     for (let i = 0; i < 10; i += 1) await api.post('/api/auth/login').send({ email: other.user.email, password: PASSWORD }).expect(200);
 
     // Codes sent by email or SMS are limited too.
-    for (let i = 0; i < 5; i += 1) await api.post('/api/auth/send-otp').send({ phone: '03001110000' }).expect(204);
-    await api.post('/api/auth/send-otp').send({ phone: '03001110000' }).expect(429);
-    await api.post('/api/auth/send-otp').send({ phone: '03001110001' }).expect(204);
+    for (let i = 0; i < 5; i += 1) await api.post('/api/auth/send-otp').send({ email: 'limit@test.com' }).expect(204);
+    await api.post('/api/auth/send-otp').send({ email: 'limit@test.com' }).expect(429);
+    await api.post('/api/auth/send-otp').send({ email: 'other@test.com' }).expect(204);
 
     // The admin login has the same protection.
     await adminSession(api);
@@ -109,5 +110,45 @@ test('too many wrong passwords are blocked, and only for that account', async ()
     await api.post('/api/admin/auth/login').send({ email: 'admin@test.com', password: 'adminpass1' }).expect(429);
   } finally {
     config.rateLimiting = false;
+  }
+});
+
+test('email goes through Brevo when a key is set, and a refusal reaches the caller as 502', async () => {
+  const config = require('../src/config');
+  const { sendEmail } = require('../src/services/messaging');
+  const realFetch = global.fetch;
+  const calls = [];
+  let status = 201;
+  global.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return { ok: status < 300, status, text: async () => 'refused' };
+  };
+  config.brevoApiKey = 'test-key';
+  const savedFrom = config.smtp.from;
+  config.smtp.from = 'SewSmart <sender@example.com>';
+  try {
+    await sendEmail('hina@test.com', 'Subject', 'Body');
+    assert.strictEqual(calls[0].url, 'https://api.brevo.com/v3/smtp/email');
+    assert.strictEqual(calls[0].options.headers['api-key'], 'test-key');
+    const sent = JSON.parse(calls[0].options.body);
+    assert.deepStrictEqual(
+      [sent.sender, sent.to, sent.subject, sent.textContent],
+      [{ name: 'SewSmart', email: 'sender@example.com' }, [{ email: 'hina@test.com' }], 'Subject', 'Body'],
+    );
+
+    status = 401;
+    const errors = console.error;
+    console.error = () => {};
+    try {
+      const failed = await api.post('/api/auth/send-otp').send({ email: 'new@test.com' });
+      assert.strictEqual(failed.status, 502);
+      assert.match(failed.body.message, /could not send the email/);
+    } finally {
+      console.error = errors;
+    }
+  } finally {
+    global.fetch = realFetch;
+    config.brevoApiKey = undefined;
+    config.smtp.from = savedFrom;
   }
 });

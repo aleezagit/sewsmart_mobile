@@ -85,7 +85,7 @@ Service: `lib/core/services/auth_service.dart`
 | --- | --- | --- |
 | `POST /api/auth/login` | `login` | Sign in with email and password. Returns a token and the user. |
 | `POST /api/auth/register` | `register` | Create a customer or tailor account. |
-| `POST /api/auth/send-otp` | `sendOtp` | Send a 4-digit code to a phone number. |
+| `POST /api/auth/send-otp` | `sendOtp` | Email a 4-digit code to an address that has no account yet. |
 | `POST /api/auth/verify-otp` | `verifyOtp` | Check the code. |
 | `POST /api/auth/forgot-password` | `forgotPassword` | Email a password reset link. |
 | `POST /api/auth/logout` | `logout` | End the session. |

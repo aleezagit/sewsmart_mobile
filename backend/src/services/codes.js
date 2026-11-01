@@ -19,15 +19,15 @@ async function store(purpose, target, code, minutes) {
   return code;
 }
 
-// A 4-digit code for a phone number, valid for 10 minutes.
-const issuePhoneCode = (phone) => store('phone', phone, randomCode(4), 10);
+// A 4-digit code for an email address, valid for 10 minutes.
+const issueEmailCode = (email) => store('email', email, randomCode(4), 10);
 
 // An 8-character reset code for a user, valid for 15 minutes (docs/API.md, 3.3).
 const issueResetCode = (userId) => store('reset', userId, randomCode(8, RESET_ALPHABET), 15);
 
-// Checks the code sent to a phone. Five wrong guesses use the code up.
-async function verifyPhoneCode(phone, code) {
-  const record = await OneTimeCode.findOne({ purpose: 'phone', target: phone, verified_at: null });
+// Checks the code sent to an email address. Five wrong guesses use the code up.
+async function verifyEmailCode(email, code) {
+  const record = await OneTimeCode.findOne({ purpose: 'email', target: email, verified_at: null });
   if (!record || record.expires_at < new Date() || record.attempts >= MAX_ATTEMPTS) return false;
   if (record.code_hash !== hash(String(code).trim())) {
     record.attempts += 1;
@@ -39,10 +39,10 @@ async function verifyPhoneCode(phone, code) {
   return true;
 }
 
-// True when the phone passed the code check in the last 30 minutes.
-async function isPhoneVerified(phone) {
+// True when the email address passed the code check in the last 30 minutes.
+async function isEmailVerified(email) {
   return Boolean(await OneTimeCode.exists({
-    purpose: 'phone', target: phone, verified_at: { $gt: new Date(Date.now() - 30 * 60 * 1000) },
+    purpose: 'email', target: email, verified_at: { $gt: new Date(Date.now() - 30 * 60 * 1000) },
   }));
 }
 
@@ -55,4 +55,4 @@ async function redeemResetCode(code) {
   return record ? record.target : null;
 }
 
-module.exports = { issuePhoneCode, issueResetCode, verifyPhoneCode, isPhoneVerified, redeemResetCode, randomCode };
+module.exports = { issueEmailCode, issueResetCode, verifyEmailCode, isEmailVerified, redeemResetCode, randomCode };

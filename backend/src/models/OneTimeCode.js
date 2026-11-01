@@ -1,9 +1,9 @@
 const { createSchema, mongoose } = require('./base');
 
-// Short-lived codes: phone OTPs at sign-up and password reset codes.
-// `target` is the phone number or the user ID. Only a hash of the code is kept.
+// Short-lived codes: email codes at sign-up and password reset codes.
+// `target` is the email address or the user ID. Only a hash of the code is kept.
 const oneTimeCodeSchema = createSchema({
-  purpose: { type: String, enum: ['phone', 'reset'], required: true },
+  purpose: { type: String, enum: ['email', 'reset'], required: true },
   target: { type: String, required: true },
   code_hash: { type: String, required: true },
   expires_at: { type: Date, required: true },

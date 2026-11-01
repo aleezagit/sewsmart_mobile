@@ -18,7 +18,22 @@ from this repository. Nothing has to be installed on your computer.
 Create a project at cloud.livekit.io, then **Settings, Keys, Create key**. Note
 the project URL (`wss://....livekit.cloud`), the API key and the API secret.
 
-## 3. The API (Render)
+## 3. Email for sign-up codes (Brevo)
+
+A new customer gets a 4-digit code by email, and password resets use email too.
+Render's free plan blocks SMTP, so the API sends email through Brevo's web API.
+
+1. Create a free account at brevo.com (300 emails a day).
+2. **Senders, Domains & Dedicated IPs, Senders, Add a sender**: use your own
+   email address and open the confirmation email Brevo sends to it.
+3. **SMTP & API, API Keys, Generate a new API key**. Copy it.
+4. On Render set `BREVO_API_KEY` to that key and `MAIL_FROM` to
+   `SewSmart <your-verified-email>`. The address must be the verified sender.
+
+Check the spam folder when testing. Without `BREVO_API_KEY` the code is only
+written to the server's log.
+
+## 4. The API (Render)
 
 1. Create an account at render.com and connect your GitHub account.
 2. **New, Blueprint**, choose this repository and the branch to deploy. Render
@@ -29,12 +44,13 @@ the project URL (`wss://....livekit.cloud`), the API key and the API secret.
 |---|---|
 | `MONGODB_URI` | the Atlas connection string |
 | `ADMIN_EMAIL` and `ADMIN_PASSWORD` | the first admin's sign-in (8 or more characters) |
+| `BREVO_API_KEY`, `MAIL_FROM` | from Brevo (step 3) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | from LiveKit |
 
 4. Deploy. When it is live, open `https://YOUR-SERVICE.onrender.com/api/health`.
    It should show `{"status":"ok"}`. The admin account is created on the first start.
 
-## 4. The apps
+## 5. The apps
 
 - **Phone app:** open the login screen, tap **Server** and enter
   `https://YOUR-SERVICE.onrender.com`. Or build the APK with that address:

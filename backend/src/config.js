@@ -29,6 +29,8 @@ module.exports = {
     pass: env.SMTP_PASS,
     from: env.MAIL_FROM || 'SewSmart <no-reply@sewsmart.app>',
   },
+  // Brevo's HTTPS email API. Hosts such as Render's free plan block SMTP, so this is the way to send email there.
+  brevoApiKey: env.BREVO_API_KEY,
   // Live video (LiveKit). Without all three, going live is refused with a clear message.
   livekit: {
     url: env.LIVEKIT_URL,

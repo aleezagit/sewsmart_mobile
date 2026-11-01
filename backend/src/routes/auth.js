@@ -7,7 +7,7 @@ const { badRequest, unauthorized, forbidden, conflict, notFound } = require('../
 const { signToken, requireUser } = require('../middleware/auth');
 const rateLimits = require('../middleware/rateLimit');
 const codes = require('../services/codes');
-const { sendEmail, sendSms } = require('../services/messaging');
+const { sendEmail } = require('../services/messaging');
 const { userId, nextId } = require('../utils/ids');
 
 const router = express.Router();
@@ -27,8 +27,8 @@ router.post('/register', rateLimits.register, async (req, res) => {
 
   if (await User.exists({ email })) throw conflict('An account with this email already exists');
   if (await User.exists({ phone })) throw conflict('An account with this phone number already exists');
-  // Customers confirm their phone with a code before the account is created.
-  if (role === 'customer' && !(await codes.isPhoneVerified(phone))) throw badRequest('Please verify your phone number first');
+  // Customers confirm their email with a code before the account is created.
+  if (role === 'customer' && !(await codes.isEmailVerified(email))) throw badRequest('Please verify your email first');
 
   const user = new User({
     _id: await userId(role),
@@ -65,16 +65,21 @@ router.post('/login', rateLimits.login, async (req, res) => {
 });
 
 router.post('/send-otp', rateLimits.sendCode, async (req, res) => {
-  const phone = v.normalizePhone(v.mobile(req.body.phone));
-  const code = await codes.issuePhoneCode(phone);
-  await sendSms(phone, `Your SewSmart code is ${code}. It expires in 10 minutes.`);
+  const email = v.email(req.body.email);
+  if (await User.exists({ email })) throw conflict('An account with this email already exists');
+  const code = await codes.issueEmailCode(email);
+  await sendEmail(
+    email,
+    'Your SewSmart verification code',
+    `Your SewSmart code is ${code}.\n\nIt expires in 10 minutes. If you did not ask for it, ignore this email.`,
+  );
   res.status(204).end();
 });
 
 router.post('/verify-otp', rateLimits.checkCode, async (req, res) => {
-  const phone = v.normalizePhone(v.mobile(req.body.phone));
+  const email = v.email(req.body.email);
   const otp = v.text(req.body.otp, 'Code', { max: 10 });
-  if (!(await codes.verifyPhoneCode(phone, otp))) throw badRequest('Invalid or expired code');
+  if (!(await codes.verifyEmailCode(email, otp))) throw badRequest('Invalid or expired code');
   res.status(204).end();
 });
 

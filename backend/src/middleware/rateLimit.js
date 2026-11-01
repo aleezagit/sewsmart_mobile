@@ -30,8 +30,8 @@ function limit({ max, minutes, by, failuresOnly = false }) {
 module.exports = {
   // Only wrong passwords count, so normal use is never slowed down.
   login: limit({ max: 8, minutes: 15, by: 'email', failuresOnly: true }),
-  // Each of these sends an email or an SMS, or guesses a code.
-  sendCode: limit({ max: 5, minutes: 15, by: 'phone' }),
+  // Each of these sends an email or guesses a code.
+  sendCode: limit({ max: 5, minutes: 15, by: 'email' }),
   sendResetEmail: limit({ max: 5, minutes: 15, by: 'email' }),
   checkCode: limit({ max: 10, minutes: 15 }),
   register: limit({ max: 10, minutes: 60 }),

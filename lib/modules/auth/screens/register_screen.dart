@@ -85,8 +85,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     if (_role == UserRole.customer) {
       try {
-        await AuthService().sendOtp(phone);
-        if (mounted) setState(() { _loading = false; _step = 2; _successMsg = 'OTP sent to $phone'; });
+        await AuthService().sendOtp(email);
+        if (mounted) setState(() { _loading = false; _step = 2; _successMsg = 'Code sent to $email'; });
       } on ApiException catch (e) {
         if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
       }
@@ -98,12 +98,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _verifyOtp() async {
     final otp = _otpCtrl.text.trim();
     if (otp.isEmpty) {
-      setState(() => _errorMsg = 'Please enter OTP');
+      setState(() => _errorMsg = 'Please enter the code');
       return;
     }
     setState(() { _loading = true; _errorMsg = null; });
     try {
-      await AuthService().verifyOtp(_phoneCtrl.text.trim(), otp);
+      await AuthService().verifyOtp(_emailCtrl.text.trim(), otp);
     } on ApiException catch (e) {
       if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
       return;
@@ -162,7 +162,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      _step == 2 ? 'Verify Phone' : 'Create Account',
+                      _step == 2 ? 'Verify Email' : 'Create Account',
                       style: GoogleFonts.poppins(color: AppColors.textPrimary, fontSize: 20, fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -171,7 +171,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: Text(
-                    _step == 2 ? 'Enter the OTP sent to your phone' : 'Fill in your details to get started',
+                    _step == 2 ? 'Enter the code sent to your email' : 'Fill in your details to get started',
                     style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
                   ),
                 ),
@@ -188,7 +188,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
                 const SizedBox(height: 24),
                 GradientButton(
-                  text: _step == 2 ? 'Verify & Register' : (_role == UserRole.customer ? 'Send OTP' : 'Create Account'),
+                  text: _step == 2 ? 'Verify & Register' : (_role == UserRole.customer ? 'Send Code' : 'Create Account'),
                   onTap: _step == 2 ? _verifyOtp : _register,
                   loading: _loading,
                 ),
@@ -280,21 +280,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
             color: AppColors.primary.withValues(alpha: 0.15),
             border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
           ),
-          child: Icon(Icons.sms_outlined, color: AppColors.primaryLight, size: 36),
+          child: Icon(Icons.mark_email_unread_outlined, color: AppColors.primaryLight, size: 36),
         ),
         const SizedBox(height: 20),
         Text(
-          'We sent a 4-digit OTP to',
+          'We emailed a 4-digit code to',
           style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13),
         ),
         Text(
-          _phoneCtrl.text.trim(),
+          _emailCtrl.text.trim(),
           style: GoogleFonts.poppins(color: AppColors.textPrimary, fontSize: 15, fontWeight: FontWeight.w600),
         ),
         const SizedBox(height: 24),
         AppTextField(
           ctrl: _otpCtrl,
-          hint: 'Enter 4-digit OTP',
+          hint: 'Enter 4-digit code',
           icon: Icons.pin_outlined,
           keyboard: TextInputType.number,
         ),
@@ -303,14 +303,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
           onTap: () async {
             setState(() { _loading = true; _errorMsg = null; });
             try {
-              await AuthService().sendOtp(_phoneCtrl.text.trim());
-              if (mounted) setState(() { _loading = false; _successMsg = 'OTP resent!'; });
+              await AuthService().sendOtp(_emailCtrl.text.trim());
+              if (mounted) setState(() { _loading = false; _successMsg = 'Code sent again'; });
             } on ApiException catch (e) {
               if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
             }
           },
           child: Text(
-            'Resend OTP',
+            'Resend code',
             style: GoogleFonts.poppins(color: AppColors.primaryLight, fontSize: 12, fontWeight: FontWeight.w500),
           ),
         ),

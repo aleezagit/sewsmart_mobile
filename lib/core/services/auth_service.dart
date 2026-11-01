@@ -58,7 +58,7 @@ class AuthService {
       _startSession(() => _api.post('/auth/login', {'email': email.trim(), 'password': password}));
 
   // ── Register ───────────────────────────────────────────────────────────────
-  // POST /api/auth/register. A customer verifies the phone with an OTP first.
+  // POST /api/auth/register. A customer verifies the email with a code first.
   Future<AuthResult> register({
     required String name, required String email, required String phone,
     required String password, required UserRole role, String? city,
@@ -73,12 +73,12 @@ class AuthService {
       }));
 
   // ── OTP ────────────────────────────────────────────────────────────────────
-  // POST /api/auth/send-otp
-  Future<void> sendOtp(String phone) => _api.post('/auth/send-otp', {'phone': Validators.normalizeMobile(phone)});
+  // POST /api/auth/send-otp. The code arrives by email.
+  Future<void> sendOtp(String email) => _api.post('/auth/send-otp', {'email': email.trim()});
 
   // POST /api/auth/verify-otp
-  Future<void> verifyOtp(String phone, String otp) =>
-      _api.post('/auth/verify-otp', {'phone': Validators.normalizeMobile(phone), 'otp': otp});
+  Future<void> verifyOtp(String email, String otp) =>
+      _api.post('/auth/verify-otp', {'email': email.trim(), 'otp': otp});
 
   // ── Password reset ─────────────────────────────────────────────────────────
   // POST /api/auth/forgot-password. The email carries a reset code.
