@@ -234,7 +234,7 @@ class CustomerService {
       TryOnResult.fromJson(objectOf(await _api.put('/ai/try-on/$id/save')));
 
   // ── Live streams (watching) ─────────────────────────────────────────────────
-  // The video itself needs a streaming service (docs/API.md, decision 12).
+  // The video itself is carried by LiveKit (core/services/live_video.dart).
 
   // GET /api/streams?status=live
   Future<List<LiveStream>> getLiveStreams() async =>

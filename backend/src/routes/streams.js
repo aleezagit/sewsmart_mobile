@@ -8,9 +8,10 @@ const { nextId } = require('../utils/ids');
 const { notFound, conflict, forbidden } = require('../utils/errors');
 const { requireRole } = require('../middleware/auth');
 const { credit, debit } = require('../services/wallet');
+const { videoToken } = require('../services/liveVideo');
 
 // Live streams: the tailor's side (docs/API.md, 3.16) and the viewer's (3.24).
-// The video itself needs a streaming service (decision 12).
+// The video runs through LiveKit; the API only issues its tokens.
 const router = express.Router();
 const tailorOnly = requireRole('tailor');
 const customerOnly = requireRole('customer');
@@ -57,6 +58,14 @@ router.post('/', tailorOnly, async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   res.json(await findStream(req.params.id));
+});
+
+// Lets the tailor publish video into the stream, or a signed-in viewer watch it.
+router.post('/:id/video-token', async (req, res) => {
+  const stream = await liveStream(req.params.id);
+  const isOwner = req.user.id === stream.tailor_id;
+  if (req.user.role === 'tailor' && !isOwner) throw forbidden('This is not your stream');
+  res.json(await videoToken({ streamId: stream.id, user: req.user, publish: isOwner }));
 });
 
 router.get('/:id/messages', async (req, res) => {

@@ -12,7 +12,7 @@ const { refreshTailorRating } = require('./services/ratings');
 const { addDays } = require('./utils/dates');
 const User = require('./models/User');
 const Admin = require('./models/Admin');
-const Settings = require('./models/Settings');
+const { ensureAdmin } = require('./services/bootstrap');
 const Garment = require('./models/Garment');
 const PortfolioItem = require('./models/PortfolioItem');
 const Order = require('./models/Order');
@@ -69,13 +69,8 @@ const DESIGNS = [
 ];
 
 async function seedPlatform() {
-  await Settings.current();
-  if (!(await Admin.exists({}))) {
-    if (!config.admin.email || !config.admin.password) throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD in .env to create the first admin');
-    await Admin.create({
-      _id: 'ad001', name: 'Admin', email: config.admin.email, password_hash: await bcrypt.hash(config.admin.password, 10),
-    });
-    console.log(`Admin created: ${config.admin.email}`);
+  if (!(await ensureAdmin()) && !(await Admin.exists({}))) {
+    throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD in .env to create the first admin');
   }
   for (const [i, [name, category, min, max]] of DESIGNS.entries()) {
     const tags = [...new Set(name.toLowerCase().match(/[a-z]+/g))];

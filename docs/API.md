@@ -173,6 +173,7 @@ Three services are new and sit in `lib/core/services/` because more than one rol
 | `GET /api/streams/:id/messages` | `TailorService.getStreamMessages` | Live stream |
 | `PUT /api/streams/:id/pin` | `TailorService.pinStreamItem` | Live stream |
 | `PUT /api/streams/:id/end` | `TailorService.endStream` | Live stream |
+| `POST /api/streams/:id/video-token` | `LiveVideo` | Live stream (tailor and viewer) |
 
 ### 3.3 Account
 
@@ -810,6 +811,19 @@ The latest 40 chat lines, oldest first.
 ]
 ```
 
+**`POST /api/streams/:id/video-token`**
+
+No body. For the tailor who owns the live stream it returns a token that lets them publish video into the stream's LiveKit room; for any other signed-in user it returns a watch-only token. The room is the stream's `id`. Tokens last 4 hours.
+
+```json
+{
+  "url": "wss://sewsmart-xxxx.livekit.cloud",
+  "token": "eyJhbGciOi..."
+}
+```
+
+`403` for a tailor who does not own the stream, `409` once it has ended, `503` ("Live video is not set up on this server yet.") when `LIVEKIT_URL`, `LIVEKIT_API_KEY` and `LIVEKIT_API_SECRET` are not set. The secret stays on the server.
+
 **`PUT /api/streams/:id/pin`**
 
 ```json
@@ -1029,7 +1043,7 @@ Disputes on the signed-in user's orders, whoever raised them, newest first, as a
 
 ### 3.24 Watching a live stream
 
-The customer's side of 3.16. The video still needs a streaming service (decision 12). Until the API sends live updates (section 5), the viewer screen moves the numbers and plays other viewers' chat by itself, as the tailor's live screen does.
+The customer's side of 3.16. The video comes through LiveKit with the token from `POST /api/streams/:id/video-token` (decision 12). Until the API sends live updates (section 5), the viewer screen moves the numbers and plays other viewers' chat by itself, as the tailor's live screen does.
 
 **`GET /api/streams?status=live`**
 
@@ -1609,7 +1623,7 @@ Every feature in both apps now has its endpoints named. These parts are still op
 | --- | --- |
 | Request and response details of the 29 endpoints in 3.1 | Only their methods and paths are fixed. Each needs the same detail as the newer endpoints before its backend work starts. |
 | File uploads | The portfolio and try-on endpoints take multipart form data, the design reference on an order and the verification documents. They are JPEG or PNG images up to 5 MB, saved on the server in `uploads/` and served from `/uploads`. The apps pick them with the camera or gallery. |
-| Live video | Tailors and viewers have their endpoints (3.16 and 3.24). The video itself needs a streaming service (decision 12). |
+| Live video | Tailors and viewers have their endpoints (3.16 and 3.24), and video runs through LiveKit (decision 12). Chat and gifts still update by polling. |
 | Delivery address of an order | Customers keep addresses (3.20), but an order and its delivery schedule do not say which one to use. This draft delivers to the default address (decision 15). |
 | Saved try-on results | Results can be saved with `PUT /api/ai/try-on/:id/save`, but no endpoint lists them and no screen shows them. The try-on screen has to call `generateTryOn` first. |
 | Paying withdrawals | The mobile app can request a withdrawal, but no admin screen lists or pays them. |
@@ -1633,7 +1647,7 @@ Each item states what this draft assumes. Change the draft if the team decides o
 9. **Price lists.** `GET /api/garments/pricing` is one shared list, while each tailor edits their own list. This draft treats the tailor's own list as the real one, so the place order and tailor profile screens should load `GET /api/tailors/:id/garments`.
 10. **Recommended designs.** The recommendations come from a catalogue of designs with a name, a category and a price range. Whether that catalogue is seeded by the team or built from the tailors' portfolio samples is open.
 11. **Try-on result.** The model returns one image, in one request that waits for the result. A true 3D view, for example a Blender turntable, is not built.
-12. **Live video.** The stream endpoints carry the title, the numbers and the chat. The video needs a streaming service, and the response to `POST /api/streams` will have to carry that service's channel and token once one is chosen.
+12. **Live video.** Video and sound go through LiveKit. The API keeps the title, the numbers and the chat, and hands out short-lived tokens (`POST /api/streams/:id/video-token`); the LiveKit secret stays in the server's environment. Going live ends the stream again if the video cannot start, so viewers never see an empty one.
 13. **Password length.** The register screen accepts 4 characters, and this draft asks for 8 on the admin password. One rule for both would be simpler.
 14. **One review per order.** A customer reviews each delivered or completed order once, and cannot edit it afterwards.
 15. **Delivery address.** The tailor delivers to the customer's default address. The delivery schedule call does not choose an address yet.

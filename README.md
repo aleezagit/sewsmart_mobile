@@ -12,6 +12,8 @@ SewSmart is an AI-powered tailoring marketplace that connects customers and tail
 | `tryon-service/` | Flask service for the virtual try-on |
 | `docs/API.md` | API contract between the apps and the backend |
 
+**Online instead of a laptop.** [docs/DEPLOY.md](docs/DEPLOY.md) puts the API on Render with a free MongoDB Atlas database, so the phone works from anywhere. Live video needs a LiveKit project (`LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` in the server's environment).
+
 ## Run everything
 
 You need Node.js 20 or newer, MongoDB, and Flutter.

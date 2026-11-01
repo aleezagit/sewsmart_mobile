@@ -219,3 +219,38 @@ test('live streams: start, watch, chat, gift and end', async () => {
   const earnings = await api.get(`/api/tailors/${tailor.user.id}/earnings`).set(tailor.auth).expect(200);
   assert.strictEqual(earnings.body.available, 600);
 });
+
+test('live video: tokens only when LiveKit is set up, publish for the owner and watch for viewers', async () => {
+  const config = require('../src/config');
+  const { decode } = require('jsonwebtoken');
+  const tailor = await signUp(api, 'tailor');
+  const other = await signUp(api, 'tailor');
+  const viewer = await signUp(api, 'customer');
+  const { body: stream } = await api.post('/api/streams').set(tailor.auth).send({ title: 'Live', category: 'Bridal Work' }).expect(201);
+  const url = `/api/streams/${stream.id}/video-token`;
+
+  const saved = { ...config.livekit };
+  try {
+    Object.assign(config.livekit, { url: undefined, apiKey: undefined, apiSecret: undefined });
+    const off = await api.post(url).set(tailor.auth).expect(503);
+    assert.match(off.body.message, /not set up/);
+
+    Object.assign(config.livekit, { url: 'wss://test.livekit.cloud', apiKey: 'devkey', apiSecret: 'a-secret-that-is-long-enough-for-hs256' });
+    const mine = await api.post(url).set(tailor.auth).expect(200);
+    assert.strictEqual(mine.body.url, 'wss://test.livekit.cloud');
+    const publishing = decode(mine.body.token);
+    assert.strictEqual(publishing.video.room, stream.id);
+    assert.strictEqual(publishing.video.canPublish, true);
+
+    const watching = decode((await api.post(url).set(viewer.auth).expect(200)).body.token);
+    assert.strictEqual(watching.video.room, stream.id);
+    assert.strictEqual(watching.video.canPublish, false);
+
+    await api.post(url).set(other.auth).expect(403);
+    await api.post(url).expect(401);
+    await api.put(`/api/streams/${stream.id}/end`).set(tailor.auth).expect(200);
+    await api.post(url).set(viewer.auth).expect(409);
+  } finally {
+    Object.assign(config.livekit, saved);
+  }
+});

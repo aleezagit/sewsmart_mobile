@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>SewSmart uses the camera for try-on photos, portfolio samples, verification documents and delivery proof.</string>
+	<string>SewSmart uses the camera for live streams, try-on photos, portfolio samples, verification documents and delivery proof.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>SewSmart uses the microphone so viewers can hear you during a live stream.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>SewSmart lets you pick try-on photos, portfolio samples and verification documents from your library.</string>
 	<key>NSAppTransportSecurity</key>

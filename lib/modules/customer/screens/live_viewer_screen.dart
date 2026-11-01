@@ -5,15 +5,15 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/live_video.dart';
 import '../../support/screens/report_content_sheet.dart';
 import '../services/customer_service.dart';
 import 'live_streams_screen.dart';
 import 'place_order_screen.dart';
 
 // A customer watching a tailor's live stream: chat, likes, gifts and the
-// garment the tailor pinned. The video needs a streaming service (docs/API.md,
-// decision 12), so the tailor's avatar stands in for it, as on the tailor's own
-// live screen.
+// garment the tailor pinned. The tailor's video comes through LiveKit; their
+// avatar shows until it arrives.
 class LiveViewerScreen extends StatefulWidget {
   final LiveStream stream;
   const LiveViewerScreen({super.key, required this.stream});
@@ -50,6 +50,7 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
   GarmentPricing? _pinned;
   TailorModel? _tailor;
   bool _joined = false;
+  final LiveVideo _video = LiveVideo();
   bool _ended = false;
   bool _sendingGift = false;
   int _nextHeart = 0;
@@ -80,6 +81,7 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     _pulseCtrl.dispose();
     _chatCtrl.dispose();
     _chatScroll.dispose();
+    _video.close();
     if (_joined) CustomerService().leaveStream(_stream.id).catchError((_) {});
     super.dispose();
   }
@@ -109,8 +111,18 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
       _endLocally();
     } else {
       _startTimers();
+      _watch();
     }
     _scrollChatToEnd();
+  }
+
+  // Connects to the tailor's video. The chat and gifts work without it.
+  Future<void> _watch() async {
+    try {
+      await _video.watch(_stream.id);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
   }
 
   // Takes the stream's numbers and chat from the server. The gifts this viewer
@@ -156,6 +168,7 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
   void _endLocally() {
     _clock?.cancel();
     _poll?.cancel();
+    _video.close();
     if (mounted) setState(() => _ended = true);
   }
 
@@ -389,6 +402,9 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
               ),
             ),
             Center(child: _buildStage()),
+            Positioned.fill(
+              child: LiveVideoView(video: _video, placeholder: const SizedBox.shrink()),
+            ),
             SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(8, 8, 4, 0),
@@ -467,7 +483,7 @@ class _LiveViewerScreenState extends State<LiveViewerScreen> with SingleTickerPr
     );
   }
 
-  // The tailor's avatar where the video will be.
+  // The tailor's avatar, shown until their video arrives.
   Widget _buildStage() {
     return AnimatedBuilder(
       animation: _pulse,

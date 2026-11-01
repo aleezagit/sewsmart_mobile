@@ -119,3 +119,24 @@ test('verification requests carry documents and can be rejected', async () => {
   mine = await api.get('/api/verifications/me').set(tailor.auth).expect(200);
   assert.deepStrictEqual([mine.body.status, mine.body.rejection_reason], ['rejected', 'Blurry']);
 });
+
+test('a new database gets its first admin from the environment, once', async () => {
+  const config = require('../src/config');
+  const { ensureAdmin } = require('../src/services/bootstrap');
+  const Admin = require('../src/models/Admin');
+  const saved = { ...config.admin };
+  try {
+    await Admin.deleteMany({});
+    Object.assign(config.admin, { email: undefined, password: undefined });
+    assert.strictEqual(await ensureAdmin(), false);
+    assert.strictEqual(await Admin.countDocuments(), 0);
+
+    Object.assign(config.admin, { email: 'first.admin@example.com', password: 'a-long-password' });
+    assert.strictEqual(await ensureAdmin(), true);
+    assert.strictEqual(await ensureAdmin(), false);
+    const login = await api.post('/api/admin/auth/login').send({ email: 'first.admin@example.com', password: 'a-long-password' });
+    assert.strictEqual(login.status, 200);
+  } finally {
+    Object.assign(config.admin, saved);
+  }
+});

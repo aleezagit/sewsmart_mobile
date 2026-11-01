@@ -18,7 +18,8 @@ module.exports = {
   mongoUri: env.MONGODB_URI || 'mongodb://127.0.0.1:27017/sewsmart',
   jwtSecret: env.JWT_SECRET || 'test-secret',
   jwtExpiresIn: env.JWT_EXPIRES_IN || '7d',
-  publicUrl: (env.PUBLIC_URL || `http://localhost:${Number(env.PORT) || 4000}`).replace(/\/$/, ''),
+  // Render sets RENDER_EXTERNAL_URL to the service's address.
+  publicUrl: (env.PUBLIC_URL || env.RENDER_EXTERNAL_URL || `http://localhost:${Number(env.PORT) || 4000}`).replace(/\/$/, ''),
   uploadDir: env.UPLOAD_DIR || 'uploads',
   corsOrigins: (env.CORS_ORIGINS || '').split(',').map((o) => o.trim()).filter(Boolean),
   smtp: {
@@ -27,6 +28,12 @@ module.exports = {
     user: env.SMTP_USER,
     pass: env.SMTP_PASS,
     from: env.MAIL_FROM || 'SewSmart <no-reply@sewsmart.app>',
+  },
+  // Live video (LiveKit). Without all three, going live is refused with a clear message.
+  livekit: {
+    url: env.LIVEKIT_URL,
+    apiKey: env.LIVEKIT_API_KEY,
+    apiSecret: env.LIVEKIT_API_SECRET,
   },
   tryOnServiceUrl: (env.TRYON_SERVICE_URL || '').replace(/\/$/, ''),
   admin: {

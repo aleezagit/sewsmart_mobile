@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/models/app_models.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/live_video.dart';
 import '../../../core/services/payout_service.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
@@ -34,6 +35,11 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
   String _category  = 'Bridal Work';
   bool   _giftsOn   = true;
   bool   _frontCam  = true;
+
+  // ── Camera and video ──────────────────────────────────────────────────────
+  // The tailor's own camera, shown before and during the stream.
+  LiveVideo _video = LiveVideo();
+  String? _cameraError;
 
   // ── Live stats ─────────────────────────────────────────────────────────────
   int    _viewers    = 0;
@@ -85,6 +91,26 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
     _pulseAnim = Tween<double>(begin: 0.88, end: 1.0).animate(
         CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
     _loadGarments();
+    _startPreview();
+  }
+
+  // Opens the camera. If it is refused, the avatar stays and the reason is shown.
+  Future<void> _startPreview() async {
+    try {
+      await _video.startPreview(frontCamera: _frontCam);
+      if (mounted) setState(() => _cameraError = null);
+    } catch (_) {
+      if (mounted) setState(() => _cameraError = 'Allow camera and microphone access to go live');
+    }
+  }
+
+  Future<void> _flipCamera() async {
+    setState(() => _frontCam = !_frontCam);
+    try {
+      await _video.flipCamera(_frontCam);
+    } catch (_) {
+      if (mounted) setState(() => _frontCam = !_frontCam);
+    }
   }
 
   // Without the price list, the pin sheet says there is nothing to pin.
@@ -104,6 +130,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
     _clockTmr?.cancel();
     _pollTmr?.cancel();
     _pulseCtrl.dispose();
+    _video.close();
     super.dispose();
   }
 
@@ -127,6 +154,17 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
         title: _titleCtrl.text, category: _category, giftsEnabled: _giftsOn,
       );
     } catch (e) {
+      if (!mounted) return;
+      setState(() => _starting = false);
+      showError(context, e);
+      return;
+    }
+    // The video goes up before the stream shows as live. If it cannot, the
+    // stream is ended again so viewers never see an empty one.
+    try {
+      await _video.publish(stream.id);
+    } catch (e) {
+      await TailorService().endStream(stream.id).catchError((_) => stream);
       if (!mounted) return;
       setState(() => _starting = false);
       showError(context, e);
@@ -209,6 +247,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
     try {
       final ended = await TailorService().endStream(stream.id);
       _clockTmr?.cancel(); _pollTmr?.cancel();
+      await _video.close();
       if (mounted) setState(() { _apply(ended); _pops.clear(); _phase = _Phase.ended; });
     } catch (e) {
       if (mounted) showError(context, e);
@@ -223,7 +262,9 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
       _earnings = 0; _durSec = 0; _muted = false;
       _msgs.clear(); _pops.clear(); _giftCounts.clear();
       _titleCtrl.clear();
+      _video = LiveVideo();
     });
+    _startPreview();
   }
 
   // Gift earnings join the available balance when the stream ends. Payouts
@@ -360,6 +401,13 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                                 fontWeight: FontWeight.bold, fontSize: 38)),
                       ),
                     ),
+                    // The camera, over the avatar once it is open
+                    Positioned.fill(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(18),
+                        child: LiveVideoView(video: _video, mirror: _frontCam, placeholder: const SizedBox.shrink()),
+                      ),
+                    ),
                     // PREVIEW badge
                     Positioned(top: 12, left: 12,
                       child: Container(
@@ -375,7 +423,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                     // Flip camera
                     Positioned(top: 8, right: 10,
                       child: GestureDetector(
-                        onTap: () => setState(() => _frontCam = !_frontCam),
+                        onTap: _flipCamera,
                         child: Container(
                           width: 36, height: 36,
                           decoration: BoxDecoration(
@@ -389,7 +437,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                     // Camera label
                     Positioned(bottom: 10,
                       child: Text(
-                        _frontCam ? '📷 Front Camera' : '📷 Back Camera',
+                        _cameraError ?? (_frontCam ? '📷 Front Camera' : '📷 Back Camera'),
                         style: GoogleFonts.poppins(
                             color: DarkColors.textMuted, fontSize: 11),
                       ),
@@ -730,6 +778,11 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
           ),
         ),
 
+        // ── The tailor's camera, over the avatar ────────────────────────
+        Positioned.fill(
+          child: LiveVideoView(video: _video, mirror: _frontCam, placeholder: const SizedBox.shrink()),
+        ),
+
         // ── TOP BAR ──────────────────────────────────────────────────────
         SafeArea(
           child: Padding(
@@ -892,7 +945,10 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                   children: [
                     // Mute
                     GestureDetector(
-                      onTap: () => setState(() => _muted = !_muted),
+                      onTap: () {
+                        setState(() => _muted = !_muted);
+                        _video.setMuted(_muted);
+                      },
                       child: _CtrlBtn(
                         icon: _muted
                             ? Icons.mic_off_rounded
@@ -903,8 +959,7 @@ class _TailorLiveScreenState extends State<TailorLiveScreen>
                     ),
                     // Flip
                     GestureDetector(
-                      onTap: () =>
-                          setState(() => _frontCam = !_frontCam),
+                      onTap: _flipCamera,
                       child: const _CtrlBtn(
                           icon: Icons.flip_camera_ios_rounded,
                           label: 'Flip',
