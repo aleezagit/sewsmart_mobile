@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/services/auth_service.dart';
@@ -32,34 +33,20 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     _fadeCtrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 600));
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeIn);
     _fadeCtrl.forward();
-    _setMockEmail();
-  }
-
-  void _setMockEmail() {
-    _emailCtrl.text = 'ayesha@email.com';
   }
 
   void _onRoleChanged(UserRole role) {
     setState(() {
       _selectedRole = role;
       _errorMsg = null;
-      switch (role) {
-        case UserRole.customer:
-          _emailCtrl.text = 'ayesha@email.com';
-        case UserRole.tailor:
-          _emailCtrl.text = 'sana@couture.com';
-        case UserRole.rider:
-          _emailCtrl.text = 'ali@rider.com';
-      }
-      _passCtrl.text = '';
     });
   }
 
   Future<void> _login() async {
     final email = _emailCtrl.text.trim();
-    final pass = _passCtrl.text.trim();
+    final pass = _passCtrl.text;
     if (email.isEmpty || pass.isEmpty) {
-      setState(() => _errorMsg = 'Please enter email and password');
+      setState(() => _errorMsg = 'Please enter your email and password');
       return;
     }
     if (!Validators.isEmail(email)) {
@@ -81,17 +68,8 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       return;
     }
     if (result.success && result.user != null) {
-      Widget destination;
-      switch (result.user!.role) {
-        case UserRole.customer:
-          destination = const MainNavigationCustomer();
-        case UserRole.tailor:
-          destination = const MainNavigationTailor();
-        case UserRole.rider:
-          destination = const MainNavigationRider();
-      }
       Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => destination),
+        MaterialPageRoute(builder: (_) => homeFor(result.user!.role)),
       );
     } else {
       setState(() => _errorMsg = result.error ?? 'Login failed');
@@ -177,19 +155,9 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                         onTap: () => _onRoleChanged(UserRole.tailor),
                         color: AppColors.tailorColor,
                       ),
-                      const SizedBox(width: 10),
-                      RoleChip(
-                        label: 'Rider',
-                        icon: Icons.delivery_dining_rounded,
-                        selected: _selectedRole == UserRole.rider,
-                        onTap: () => _onRoleChanged(UserRole.rider),
-                        color: AppColors.riderColor,
-                      ),
                     ],
                   ),
                   const SizedBox(height: 24),
-                  _buildMockHint(),
-                  const SizedBox(height: 16),
                   AppTextField(
                     ctrl: _emailCtrl,
                     hint: 'Email address',
@@ -267,7 +235,18 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                       ),
                     ),
                   ),
-                  const SizedBox(height: 32),
+                  const SizedBox(height: 20),
+                  Center(
+                    child: TextButton.icon(
+                      onPressed: _changeServer,
+                      icon: Icon(Icons.dns_rounded, size: 15, color: AppColors.textMuted),
+                      label: Text(
+                        'Server: ${Uri.parse(ApiClient().baseUrl).authority}',
+                        style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -277,36 +256,63 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
     );
   }
 
-  Widget _buildMockHint() {
-    String email;
-    switch (_selectedRole) {
-      case UserRole.customer:
-        email = 'ayesha@email.com';
-      case UserRole.tailor:
-        email = 'sana@couture.com';
-      case UserRole.rider:
-        email = 'ali@rider.com';
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppColors.cardAlt,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.divider),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.info_outline, color: AppColors.primaryLight, size: 15),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Mock: $email / 1234',
-              style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 11),
-            ),
+  // Lets the user point the app at their own backend, such as a laptop on the
+  // same Wi-Fi. The address is checked before it is kept.
+  Future<void> _changeServer() async {
+    final ctrl = TextEditingController(text: ApiClient().baseUrl);
+    String? error;
+    bool checking = false;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          backgroundColor: AppColors.card,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text('Server address',
+              style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Where the SewSmart server runs, for example http://192.168.1.5:4000',
+                  style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12)),
+              const SizedBox(height: 12),
+              AppTextField(hint: 'http://192.168.1.5:4000', icon: Icons.dns_rounded, ctrl: ctrl, keyboard: TextInputType.url),
+              if (error != null) ...[
+                const SizedBox(height: 10),
+                Text(error!, style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12)),
+              ],
+            ],
           ),
-        ],
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await ApiClient().resetServer();
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: Text('Reset', style: GoogleFonts.poppins(color: AppColors.textMuted)),
+            ),
+            TextButton(
+              onPressed: checking
+                  ? null
+                  : () async {
+                      setDialogState(() { checking = true; error = null; });
+                      try {
+                        await ApiClient().useServer(ctrl.text);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      } on ApiException catch (e) {
+                        setDialogState(() { checking = false; error = e.message; });
+                      }
+                    },
+              child: Text(checking ? 'Checking...' : 'Save',
+                  style: GoogleFonts.poppins(color: AppColors.primaryLight, fontWeight: FontWeight.w600)),
+            ),
+          ],
+        ),
       ),
     );
+    ctrl.dispose();
+    if (mounted) setState(() {});
   }
 
   List<Color> _roleGradient() {
@@ -315,8 +321,6 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
         return [AppColors.primary, AppColors.primaryLight];
       case UserRole.tailor:
         return [AppColors.teal, AppColors.tealLight];
-      case UserRole.rider:
-        return [AppColors.riderColor, const Color(0xFFF97316)];
     }
   }
 }

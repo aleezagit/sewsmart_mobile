@@ -4,7 +4,8 @@ import 'package:fl_chart/fl_chart.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
+import '../../../core/services/auth_service.dart';
+import '../../../core/services/payout_service.dart';
 import '../services/tailor_service.dart';
 
 class TailorEarningsScreen extends StatefulWidget {
@@ -15,9 +16,10 @@ class TailorEarningsScreen extends StatefulWidget {
 }
 
 class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
-  Map<String, dynamic>? _earnings;
+  TailorEarnings? _earnings;
   List<OrderModel> _orders = [];
   bool _loading = true;
+  Object? _loadError;
   bool _withdrawing = false;
 
   @override
@@ -27,29 +29,33 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
   }
 
   Future<void> _loadData() async {
-    final earnings = await TailorService().getEarnings('T001');
-    final orders = await TailorService().getOrders('T001');
-    if (mounted) {
+    final id = AuthService().currentUser?.id;
+    if (id == null) return;
+    try {
+      final results = await Future.wait([TailorService().getEarnings(id), TailorService().getOrders()]);
+      if (!mounted) return;
       setState(() {
-        _earnings = earnings;
-        _orders = orders;
+        _earnings = results[0] as TailorEarnings;
+        _orders = results[1] as List<OrderModel>;
         _loading = false;
+        _loadError = null;
       });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
     }
   }
 
+  // Asks for the whole available balance. Payouts are sent on Mondays.
   Future<void> _handleWithdraw() async {
     setState(() => _withdrawing = true);
-    await Future.delayed(const Duration(seconds: 1));
-    if (mounted) {
-      setState(() => _withdrawing = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Withdrawal request submitted!', style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.success,
-        ),
-      );
+    try {
+      final withdrawal = await PayoutService().requestWithdrawal();
+      if (mounted) showMessage(context, 'Withdrawal of Rs ${withdrawal.amount.toInt()} requested. Payouts are sent on Mondays.');
+      await _loadData();
+    } catch (e) {
+      if (mounted) showError(context, e);
     }
+    if (mounted) setState(() => _withdrawing = false);
   }
 
   @override
@@ -63,6 +69,11 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
           child: _loading
               ? Center(
                   child: CircularProgressIndicator(color: AppColors.tealLight, strokeWidth: 2))
+              : _loadError != null
+              ? LoadError(error: _loadError!, onRetry: () {
+                  setState(() => _loading = true);
+                  _loadData();
+                })
               : Column(
                   children: [
                     const SewAppBar(title: 'Earnings'),
@@ -98,8 +109,8 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
   }
 
   Widget _buildHeaderCard() {
-    final total = _earnings?['total'] as double? ?? 0;
-    final thisMonth = _earnings?['thisMonth'] as double? ?? 0;
+    final total = _earnings?.total ?? 0;
+    final thisMonth = _earnings?.thisMonth ?? 0;
     final totalOrders = _orders.length;
     final avgPerOrder = totalOrders > 0 ? total / totalOrders : 0;
 
@@ -153,8 +164,8 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
   }
 
   Widget _buildMetricGrid() {
-    final pending = _earnings?['pending'] as double? ?? 0;
-    final withdrawn = _earnings?['withdrawn'] as double? ?? 0;
+    final pending = _earnings?.pending ?? 0;
+    final withdrawn = _earnings?.withdrawn ?? 0;
     return GridView.count(
       crossAxisCount: 2,
       crossAxisSpacing: 12,
@@ -192,10 +203,9 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
   }
 
   Widget _buildBarChart() {
-    final monthly = MockData.monthlyEarnings;
-    final maxAmt = monthly
-        .map((m) => m['amount'] as double)
-        .reduce((a, b) => a > b ? a : b);
+    final monthly = _earnings?.monthly ?? const <MonthlyEarning>[];
+    // At least 1, so a chart of empty months still has a height.
+    final maxAmt = monthly.fold<double>(1, (top, m) => m.amount > top ? m.amount : top);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -239,7 +249,7 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
                         return Padding(
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
-                            monthly[idx]['month'] as String,
+                            monthly[idx].shortMonth,
                             style: GoogleFonts.poppins(
                               color: AppColors.textMuted,
                               fontSize: 10,
@@ -276,7 +286,7 @@ class _TailorEarningsScreenState extends State<TailorEarningsScreen> {
                     x: i,
                     barRods: [
                       BarChartRodData(
-                        toY: m['amount'] as double,
+                        toY: m.amount,
                         gradient: LinearGradient(
                           begin: Alignment.bottomCenter,
                           end: Alignment.topCenter,

@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/services/auth_service.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../services/customer_service.dart';
 import 'order_tracking_screen.dart';
@@ -19,6 +18,7 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with SingleTick
   late TabController _tabController;
   List<OrderModel> _orders = [];
   bool _loading = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -37,11 +37,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with SingleTick
   }
 
   Future<void> _loadOrders() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
-    final orders = await CustomerService().getMyOrders(user.id);
-    if (mounted) {
-      setState(() { _orders = orders; _loading = false; });
+    try {
+      final orders = await CustomerService().getMyOrders();
+      if (mounted) setState(() { _orders = orders; _loading = false; _loadError = null; });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
     }
   }
 
@@ -93,6 +93,11 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> with SingleTick
               Expanded(
                 child: _loading
                     ? Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2))
+                    : _loadError != null
+                    ? LoadError(error: _loadError!, onRetry: () {
+                        setState(() => _loading = true);
+                        _loadOrders();
+                      })
                     : TabBarView(
                         controller: _tabController,
                         children: [

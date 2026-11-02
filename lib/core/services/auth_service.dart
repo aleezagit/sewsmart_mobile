@@ -1,16 +1,16 @@
 // ─── Auth Service ─────────────────────────────────────────────────────────────
-// Currently uses mock data. Replace _mockLogin() with real API calls.
-// All methods return Future<T> — API-ready signature.
+// Sign-in, registration, password reset and the signed-in user's account.
+// Methods without a result type throw [ApiException] with a message to show.
 
+import '../api/api_client.dart';
 import '../models/app_models.dart';
-import '../data/mock_data.dart';
+import '../utils/validators.dart';
 
 class AuthResult {
   final bool success;
-  final String? token;
   final UserModel? user;
   final String? error;
-  const AuthResult({required this.success, this.token, this.user, this.error});
+  const AuthResult({required this.success, this.user, this.error});
 }
 
 class AuthService {
@@ -19,97 +19,107 @@ class AuthService {
   factory AuthService() => _instance;
   AuthService._();
 
+  final ApiClient _api = ApiClient();
+
   UserModel? _currentUser;
   UserModel? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
 
-  // ── Login ──────────────────────────────────────────────────────────────────
-  // TODO: Replace with: POST /api/auth/login
-  Future<AuthResult> login(String email, String password) async {
-    await Future.delayed(const Duration(milliseconds: 800)); // simulate network
-    final user = MockData.users.where((u) => u.email == email).firstOrNull;
-    if (user != null) {
-      _currentUser = user;
-      return AuthResult(success: true, token: 'mock_token_${user.id}', user: user);
+  // ── Session ────────────────────────────────────────────────────────────────
+  // Signs the user back in with the token saved by the last sign-in. Returns
+  // null when there is none or it has expired.
+  Future<UserModel?> restoreSession() async {
+    await _api.restore();
+    if (!_api.hasToken) return null;
+    try {
+      _currentUser = UserModel.fromJson(objectOf(await _api.get('/users/me')));
+      return _currentUser;
+    } on ApiException catch (e) {
+      // A network problem keeps the token for the next start.
+      if (e.statusCode == 401 || e.statusCode == 403) await _api.setToken(null);
+      return null;
     }
-    return const AuthResult(success: false, error: 'Invalid email or password');
   }
 
+  Future<AuthResult> _startSession(Future<dynamic> Function() request) async {
+    try {
+      final json = objectOf(await request());
+      await _api.setToken(json['token'] as String);
+      _currentUser = UserModel.fromJson(objectOf(json['user']));
+      return AuthResult(success: true, user: _currentUser);
+    } on ApiException catch (e) {
+      return AuthResult(success: false, error: e.message);
+    }
+  }
+
+  // ── Login ──────────────────────────────────────────────────────────────────
+  // POST /api/auth/login
+  Future<AuthResult> login(String email, String password) =>
+      _startSession(() => _api.post('/auth/login', {'email': email.trim(), 'password': password}));
+
   // ── Register ───────────────────────────────────────────────────────────────
-  // TODO: Replace with: POST /api/auth/register
+  // POST /api/auth/register. A customer verifies the email with a code first.
   Future<AuthResult> register({
     required String name, required String email, required String phone,
     required String password, required UserRole role, String? city,
-  }) async {
-    await Future.delayed(const Duration(milliseconds: 1000));
-    final newUser = UserModel(
-      id: 'NEW${DateTime.now().millisecondsSinceEpoch}',
-      name: name, email: email, phone: phone, role: role,
-      isVerified: role == UserRole.customer, // customers auto-verified via OTP
-      city: city, createdAt: DateTime.now(),
-    );
-    _currentUser = newUser;
-    return AuthResult(success: true, token: 'mock_token_new', user: newUser);
-  }
+    int? experienceYears, String? specialties,
+  }) =>
+      _startSession(() => _api.post('/auth/register', {
+        'name': name, 'email': email, 'phone': Validators.normalizeMobile(phone), 'password': password,
+        'role': role.name,
+        'city': ?city,
+        'experience_years': ?experienceYears,
+        'specialties': ?specialties,
+      }));
 
   // ── OTP ────────────────────────────────────────────────────────────────────
-  // TODO: Replace with: POST /api/auth/send-otp & POST /api/auth/verify-otp
-  Future<bool> sendOtp(String phone) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    return true; // always succeeds in mock
-  }
+  // POST /api/auth/send-otp. The code arrives by email.
+  Future<void> sendOtp(String email) => _api.post('/auth/send-otp', {'email': email.trim()});
 
-  Future<bool> verifyOtp(String phone, String otp) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    return otp == '1234'; // mock OTP
-  }
+  // POST /api/auth/verify-otp
+  Future<void> verifyOtp(String email, String otp) =>
+      _api.post('/auth/verify-otp', {'email': email.trim(), 'otp': otp});
 
-  // ── Forgot Password ────────────────────────────────────────────────────────
-  // TODO: Replace with: POST /api/auth/forgot-password
-  Future<bool> forgotPassword(String email) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return MockData.users.any((u) => u.email == email);
-  }
+  // ── Password reset ─────────────────────────────────────────────────────────
+  // POST /api/auth/forgot-password. The email carries a reset code.
+  Future<void> forgotPassword(String email) =>
+      _api.post('/auth/forgot-password', {'email': email});
 
-  // ── Reset Password ─────────────────────────────────────────────────────────
-  // TODO: Replace with: POST /api/auth/reset-password
-  // token is the code from the reset email, typed on ResetPasswordScreen, or
-  // the token from the email's link.
-  Future<bool> resetPassword(String token, String newPassword) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    return token.isNotEmpty && newPassword.length >= 4;
-  }
+  // POST /api/auth/reset-password. token is the code from the reset email.
+  Future<void> resetPassword(String token, String newPassword) =>
+      _api.post('/auth/reset-password', {'token': token, 'new_password': newPassword});
 
   // ── Profile ────────────────────────────────────────────────────────────────
-  // TODO: Replace with: GET /api/users/me
-  Future<UserModel?> getProfile() async {
-    await Future.delayed(const Duration(milliseconds: 300));
-    return _currentUser;
+  // GET /api/users/me
+  Future<UserModel> getProfile() async {
+    _currentUser = UserModel.fromJson(objectOf(await _api.get('/users/me')));
+    return _currentUser!;
   }
 
-  // TODO: Replace with: PUT /api/users/me
+  // PUT /api/users/me
   Future<AuthResult> updateProfile({String? name, String? phone, String? city}) async {
-    await Future.delayed(const Duration(milliseconds: 600));
-    final user = _currentUser;
-    if (user == null) return const AuthResult(success: false, error: 'Not signed in');
-    final newName = name?.trim();
-    if (newName != null && newName.isEmpty) {
-      return const AuthResult(success: false, error: 'Name cannot be empty');
+    try {
+      final json = await _api.put('/users/me', {
+        'name': ?name,
+        if (phone != null) 'phone': Validators.normalizeMobile(phone),
+        'city': ?city,
+      });
+      _currentUser = UserModel.fromJson(objectOf(json));
+      return AuthResult(success: true, user: _currentUser);
+    } on ApiException catch (e) {
+      return AuthResult(success: false, error: e.message);
     }
-    final updated = UserModel(
-      id: user.id, name: newName ?? user.name, email: user.email,
-      phone: phone?.trim() ?? user.phone, role: user.role, isVerified: user.isVerified,
-      avatar: user.avatar, city: city?.trim() ?? user.city, createdAt: user.createdAt,
-    );
-    final idx = MockData.users.indexWhere((u) => u.id == user.id);
-    if (idx != -1) MockData.users[idx] = updated;
-    _currentUser = updated;
-    return AuthResult(success: true, user: updated);
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────
-  // TODO: Replace with: POST /api/auth/logout
+  // POST /api/auth/logout. The local session ends even when the request fails.
   Future<void> logout() async {
+    try {
+      if (_api.hasToken) await _api.post('/auth/logout');
+    } on ApiException {
+      // The token is dropped below either way.
+    }
     _currentUser = null;
+    await _api.setToken(null);
   }
 }

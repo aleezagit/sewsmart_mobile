@@ -21,10 +21,10 @@ class DarkColors {
   static const tealLight    = Color(0xFF14B8A6);
   static const secondary    = Color(0xFFBE185D);
   static const gold         = Color(0xFFEAB308);
-  // Role colours
+  // Role colours, and an orange accent
   static const customerColor = Color(0xFF7C3AED);
   static const tailorColor   = Color(0xFF0D9488);
-  static const riderColor    = Color(0xFFEA580C);
+  static const orange        = Color(0xFFEA580C);
   // Status
   static const success = Color(0xFF22C55E);
   static const warning = Color(0xFFF59E0B);
@@ -60,10 +60,10 @@ class LightColors {
   static const tealLight    = Color(0xFF0D9488);
   static const secondary    = Color(0xFFBE185D);
   static const gold         = Color(0xFFC27803);
-  // Role colours
+  // Role colours, and an orange accent
   static const customerColor = Color(0xFF7C3AED);
   static const tailorColor   = Color(0xFF0F766E);
-  static const riderColor    = Color(0xFFEA580C);
+  static const orange        = Color(0xFFEA580C);
   // Status
   static const success = Color(0xFF15803D);
   static const warning = Color(0xFFB45309);
@@ -108,10 +108,10 @@ class AppColors {
   static Color get tealLight    => _light ? LightColors.tealLight : DarkColors.tealLight;
   static Color get secondary    => _light ? LightColors.secondary : DarkColors.secondary;
   static Color get gold         => _light ? LightColors.gold : DarkColors.gold;
-  // Role colours
+  // Role colours, and an orange accent
   static Color get customerColor => _light ? LightColors.customerColor : DarkColors.customerColor;
   static Color get tailorColor   => _light ? LightColors.tailorColor : DarkColors.tailorColor;
-  static Color get riderColor    => _light ? LightColors.riderColor : DarkColors.riderColor;
+  static Color get orange    => _light ? LightColors.orange : DarkColors.orange;
   // Status
   static Color get success => _light ? LightColors.success : DarkColors.success;
   static Color get warning => _light ? LightColors.warning : DarkColors.warning;

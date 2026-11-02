@@ -3,6 +3,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/utils/validators.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../../../core/models/app_models.dart';
+import '../../../core/services/bank_service.dart';
+import '../services/customer_service.dart';
 
 class PaymentMethodsScreen extends StatefulWidget {
   const PaymentMethodsScreen({super.key});
@@ -12,49 +15,44 @@ class PaymentMethodsScreen extends StatefulWidget {
 }
 
 class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
-  // ignore: prefer_final_fields
-  List<_PayMethod> _methods = [
-    _PayMethod(
-      type: 'JazzCash',
-      detail: '0301-2345678',
-      icon: Icons.account_balance_wallet_rounded,
-      color: AppColors.warning,
-      isDefault: true,
-    ),
-    _PayMethod(
-      type: 'Cash on Delivery',
-      detail: 'Pay when received',
-      icon: Icons.payments_rounded,
-      color: AppColors.success,
-      isDefault: false,
-    ),
-  ];
+  List<SavedPaymentMethod> _methods = [];
+  bool _loading = true;
+  Object? _loadError;
 
-  void _setDefault(int index) {
-    setState(() {
-      for (int i = 0; i < _methods.length; i++) {
-        _methods[i] = _methods[i].copyWith(isDefault: i == index);
-      }
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${_methods[index].type} set as default',
-            style: GoogleFonts.poppins()),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+  @override
+  void initState() {
+    super.initState();
+    _load();
   }
 
-  void _removeMethod(int index) {
-    if (_methods[index].isDefault) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Cannot remove the default payment method',
-              style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.warning,
-        ),
+  Future<void> _load() async {
+    try {
+      final methods = await CustomerService().getPaymentMethods();
+      if (mounted) setState(() { _methods = methods; _loading = false; _loadError = null; });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
+  }
+
+  // Runs a change, then loads the list again so it shows what the server kept.
+  Future<void> _change(Future<void> Function() action, String done) async {
+    try {
+      await action();
+      await _load();
+      if (mounted) showMessage(context, done);
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  void _setDefault(SavedPaymentMethod m) => _change(
+        () => CustomerService().setDefaultPaymentMethod(m.id),
+        '${_kindOf(m.type).name} set as default',
       );
+
+  void _removeMethod(SavedPaymentMethod m) {
+    if (m.isDefault) {
+      showMessage(context, 'Choose another default method before removing this one', success: false);
       return;
     }
     showDialog(
@@ -66,7 +64,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
             style: GoogleFonts.poppins(
                 color: AppColors.textPrimary, fontWeight: FontWeight.w600)),
         content: Text(
-          'Remove "${_methods[index].type}" from your saved methods?',
+          'Remove "${_kindOf(m.type).name}" from your saved methods?',
           style: GoogleFonts.poppins(
               color: AppColors.textSecondary, fontSize: 13),
         ),
@@ -79,15 +77,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
           TextButton(
             onPressed: () {
               Navigator.pop(ctx);
-              setState(() => _methods.removeAt(index));
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Payment method removed',
-                      style: GoogleFonts.poppins()),
-                  backgroundColor: AppColors.error,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
+              _change(() => CustomerService().removePaymentMethod(m.id), 'Payment method removed');
             },
             child: Text('Remove',
                 style: GoogleFonts.poppins(
@@ -106,28 +96,21 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
       isScrollControlled: true,
       builder: (ctx) => _AddMethodSheet(
-        onAdd: (method) {
-          if (_methods.any((m) => m.type == method.type && m.detail == method.detail)) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('${method.type} is already saved', style: GoogleFonts.poppins()),
-                backgroundColor: AppColors.warning,
-              ),
-            );
-            return;
-          }
-          setState(() => _methods.add(method));
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${method.type} added!',
-                  style: GoogleFonts.poppins()),
-              backgroundColor: AppColors.success,
-              duration: const Duration(seconds: 2),
-            ),
+        onAdd: (type, number, name, bank, iban) async {
+          await CustomerService().addPaymentMethod(
+            type: type, accountNumber: number, accountName: name, bankName: bank, iban: iban,
           );
+          await _load();
+          if (mounted) showMessage(context, '${_kindOf(type).name} added!');
         },
       ),
     );
+  }
+
+  // The text under a saved method.
+  String _detailOf(SavedPaymentMethod m) {
+    if (m.type == 'card') return '•••• ${m.detail}';
+    return m.accountName.isEmpty ? m.detail : '${m.detail} · ${m.accountName}';
   }
 
   @override
@@ -148,7 +131,15 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 8),
-                      _buildMethodsList(),
+                      if (_loading)
+                        Center(child: Padding(padding: const EdgeInsets.all(30), child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2)))
+                      else if (_loadError != null)
+                        LoadError(error: _loadError!, onRetry: () {
+                          setState(() => _loading = true);
+                          _load();
+                        })
+                      else
+                        _buildMethodsList(),
                       const SizedBox(height: 14),
                       _buildAddButton(),
                       const SizedBox(height: 24),
@@ -187,7 +178,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                     color: AppColors.textPrimary,
                     fontWeight: FontWeight.bold,
                     fontSize: 17)),
-            Text('Manage your payment options',
+            Text('Accounts you add money to your wallet from',
                 style: GoogleFonts.poppins(
                     color: AppColors.textMuted, fontSize: 11)),
           ]),
@@ -205,7 +196,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
           Icon(Icons.account_balance_wallet_outlined,
               color: AppColors.textMuted, size: 14),
           const SizedBox(width: 6),
-          Text('SAVED METHODS',
+          Text('SAVED ACCOUNTS',
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted,
                   fontSize: 11,
@@ -213,9 +204,13 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                   letterSpacing: 0.8)),
         ]),
         const SizedBox(height: 10),
-        ..._methods.asMap().entries.map((entry) {
-          final i = entry.key;
-          final m = entry.value;
+        if (_methods.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Text('No saved methods yet', style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 12)),
+          ),
+        ..._methods.map((m) {
+          final kind = _kindOf(m.type);
           return Container(
             margin: const EdgeInsets.only(bottom: 10),
             padding: const EdgeInsets.all(14),
@@ -234,10 +229,10 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                   width: 46,
                   height: 46,
                   decoration: BoxDecoration(
-                    color: m.color.withValues(alpha: 0.12),
+                    color: kind.color.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(m.icon, color: m.color, size: 22),
+                  child: Icon(kind.icon, color: kind.color, size: 22),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -245,7 +240,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Row(children: [
-                        Text(m.type,
+                        Text(kind.name,
                             style: GoogleFonts.poppins(
                                 color: AppColors.textPrimary,
                                 fontWeight: FontWeight.w600,
@@ -268,7 +263,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                           ),
                         ],
                       ]),
-                      Text(m.detail,
+                      Text(_detailOf(m),
                           style: GoogleFonts.poppins(
                               color: AppColors.textMuted, fontSize: 11)),
                     ],
@@ -281,8 +276,8 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   onSelected: (v) {
-                    if (v == 'default') _setDefault(i);
-                    if (v == 'remove') _removeMethod(i);
+                    if (v == 'default') _setDefault(m);
+                    if (v == 'remove') _removeMethod(m);
                   },
                   itemBuilder: (_) => [
                     if (!m.isDefault)
@@ -356,15 +351,7 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
 
   // ── Accepted Methods ─────────────────────────────────────────────────────────
   Widget _buildAcceptedMethods() {
-    final methods = [
-      _AcceptedMethod('JazzCash', Icons.account_balance_wallet_rounded,
-          AppColors.warning),
-      _AcceptedMethod(
-          'EasyPaisa', Icons.mobile_friendly_rounded, AppColors.success),
-      _AcceptedMethod(
-          'Bank Transfer', Icons.account_balance_rounded, AppColors.info),
-      _AcceptedMethod('Card', Icons.credit_card_rounded, AppColors.primary),
-    ];
+    final methods = ['jazzCash', 'easyPaisa', 'bank', 'card'].map(_kindOf).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -441,7 +428,9 @@ class _PaymentMethodsScreenState extends State<PaymentMethodsScreen> {
 
 // ── Add Method Bottom Sheet ────────────────────────────────────────────────────
 class _AddMethodSheet extends StatefulWidget {
-  final void Function(_PayMethod method) onAdd;
+  // Saves the method. type is the API value, such as jazzCash. Throws with a
+  // message to show when the server refuses it.
+  final Future<void> Function(String type, String number, String name, String? bank, String? iban) onAdd;
   const _AddMethodSheet({required this.onAdd});
 
   @override
@@ -449,52 +438,76 @@ class _AddMethodSheet extends StatefulWidget {
 }
 
 class _AddMethodSheetState extends State<_AddMethodSheet> {
-  String _selectedType = 'JazzCash';
+  String _selectedType = 'jazzCash';
+  // A bank account: the bank from the server's list, and either the account
+  // number or the IBAN.
+  List<String> _banks = [];
+  String? _bank;
+  bool _useIban = false;
   final _numberCtrl = TextEditingController();
   final _nameCtrl = TextEditingController();
   String? _error;
+  bool _saving = false;
 
   // Returns what to fix before the method can be added, or null.
   String? _check() {
-    if (!_needsDetail) return null;
     final number = _numberCtrl.text.trim();
     switch (_selectedType) {
-      case 'JazzCash':
-      case 'EasyPaisa':
+      case 'jazzCash':
+      case 'easyPaisa':
         if (!Validators.isMobile(number)) return 'Enter the wallet mobile number, e.g. 0300-1234567';
-      case 'Bank Transfer':
-        if (Validators.digitsOnly(number).length < 8) return 'Enter the full account number or IBAN';
-      case 'Debit / Credit Card':
+      case 'bank':
+        if (_bank == null) return 'Choose your bank';
+        if (_useIban ? !Validators.isIban(number) : Validators.digitsOnly(number).length < 8) {
+          return _useIban ? 'Enter a valid IBAN, e.g. PK36SCBL0000001123456702' : 'Enter the full account number';
+        }
+      case 'card':
         if (Validators.digitsOnly(number).length != 16) return 'Enter the 16-digit card number';
     }
     if (_nameCtrl.text.trim().isEmpty) return 'Enter the account holder name';
     return null;
   }
 
-  // Only the last four digits of a card are kept on screen.
-  String get _detail {
-    if (_selectedType == 'Cash on Delivery') return 'Pay when received';
-    final number = _numberCtrl.text.trim();
-    if (_selectedType == 'Debit / Credit Card') {
-      final digits = Validators.digitsOnly(number);
-      return '•••• ${digits.substring(digits.length - 4)}';
-    }
-    return number;
+  static const _types = ['jazzCash', 'easyPaisa', 'bank', 'card'];
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBanks();
   }
 
-  static List<_AcceptedMethod> get _types => [
-    _AcceptedMethod('JazzCash', Icons.account_balance_wallet_rounded,
-        AppColors.warning),
-    _AcceptedMethod(
-        'EasyPaisa', Icons.mobile_friendly_rounded, AppColors.success),
-    _AcceptedMethod(
-        'Bank Transfer', Icons.account_balance_rounded, AppColors.info),
-    _AcceptedMethod('Cash on Delivery', Icons.payments_rounded, AppColors.teal),
-    _AcceptedMethod(
-        'Debit / Credit Card', Icons.credit_card_rounded, AppColors.primary),
-  ];
+  Future<void> _loadBanks() async {
+    try {
+      final banks = await BankService().getBanks();
+      if (mounted) setState(() => _banks = banks);
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    }
+  }
 
-  bool get _needsDetail => _selectedType != 'Cash on Delivery';
+  // The server keeps only the last four digits of a card.
+  Future<void> _save() async {
+    final problem = _check();
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    setState(() { _saving = true; _error = null; });
+    try {
+      final isBank = _selectedType == 'bank';
+      final number = _numberCtrl.text.trim();
+      await widget.onAdd(
+        _selectedType,
+        isBank && _useIban ? '' : number,
+        _nameCtrl.text.trim(),
+        isBank ? _bank : null,
+        isBank && _useIban ? number : null,
+      );
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) setState(() { _saving = false; _error = '$e'; });
+    }
+  }
 
   @override
   void dispose() {
@@ -557,9 +570,10 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
               spacing: 8,
               runSpacing: 8,
               children: _types
+                  .map(_kindOf)
                   .map((t) => GestureDetector(
                         onTap: () => setState(() {
-                          _selectedType = t.name;
+                          _selectedType = t.type;
                           _error = null;
                         }),
                         child: AnimatedContainer(
@@ -567,12 +581,12 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
-                            color: _selectedType == t.name
+                            color: _selectedType == t.type
                                 ? t.color.withValues(alpha: 0.18)
                                 : AppColors.card,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
-                              color: _selectedType == t.name
+                              color: _selectedType == t.type
                                   ? t.color
                                   : AppColors.divider,
                             ),
@@ -584,11 +598,11 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
                               const SizedBox(width: 6),
                               Text(t.name,
                                   style: GoogleFonts.poppins(
-                                      color: _selectedType == t.name
+                                      color: _selectedType == t.type
                                           ? t.color
                                           : AppColors.textSecondary,
                                       fontSize: 12,
-                                      fontWeight: _selectedType == t.name
+                                      fontWeight: _selectedType == t.type
                                           ? FontWeight.w600
                                           : FontWeight.normal)),
                             ],
@@ -597,21 +611,42 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
                       ))
                   .toList(),
             ),
-            if (_needsDetail) ...[
-              const SizedBox(height: 18),
-              AppTextField(
-                hint: 'Account Number / Mobile Number',
-                icon: Icons.tag_rounded,
-                ctrl: _numberCtrl,
-                keyboard: TextInputType.phone,
+            const SizedBox(height: 18),
+            if (_selectedType == 'bank') ...[
+              DropdownButtonFormField<String>(
+                initialValue: _bank,
+                isExpanded: true,
+                dropdownColor: AppColors.cardAlt,
+                decoration: InputDecoration(
+                  hintText: _banks.isEmpty ? 'Loading banks...' : 'Select your bank',
+                  prefixIcon: Icon(Icons.account_balance_rounded, color: AppColors.textMuted, size: 20),
+                ),
+                style: GoogleFonts.poppins(color: AppColors.textPrimary, fontSize: 14),
+                items: [for (final bank in _banks) DropdownMenuItem(value: bank, child: Text(bank))],
+                onChanged: (bank) => setState(() { _bank = bank; _error = null; }),
               ),
               const SizedBox(height: 10),
-              AppTextField(
-                hint: 'Account Holder Name',
-                icon: Icons.person_rounded,
-                ctrl: _nameCtrl,
-              ),
+              Row(children: [
+                ChoicePill(label: 'Account number', selected: !_useIban, onTap: () => setState(() { _useIban = false; _numberCtrl.clear(); _error = null; })),
+                const SizedBox(width: 8),
+                ChoicePill(label: 'IBAN', selected: _useIban, onTap: () => setState(() { _useIban = true; _numberCtrl.clear(); _error = null; })),
+              ]),
+              const SizedBox(height: 10),
             ],
+            AppTextField(
+              hint: _selectedType == 'bank'
+                  ? (_useIban ? 'IBAN (PK36SCBL0000001123456702)' : 'Account number')
+                  : _selectedType == 'card' ? 'Card number' : 'Mobile account number',
+              icon: Icons.tag_rounded,
+              ctrl: _numberCtrl,
+              keyboard: _selectedType == 'bank' && _useIban ? TextInputType.text : TextInputType.number,
+            ),
+            const SizedBox(height: 10),
+            AppTextField(
+              hint: 'Account Holder Name',
+              icon: Icons.person_rounded,
+              ctrl: _nameCtrl,
+            ),
             if (_error != null) ...[
               const SizedBox(height: 12),
               Text(_error!, style: GoogleFonts.poppins(color: AppColors.error, fontSize: 12)),
@@ -619,24 +654,8 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
             const SizedBox(height: 22),
             GradientButton(
               text: 'Add Method',
-              onTap: () {
-                final problem = _check();
-                if (problem != null) {
-                  setState(() => _error = problem);
-                  return;
-                }
-                final type = _types.firstWhere((t) => t.name == _selectedType);
-                Navigator.pop(context);
-                widget.onAdd(
-                  _PayMethod(
-                    type: _selectedType,
-                    detail: _detail,
-                    icon: type.icon,
-                    color: type.color,
-                    isDefault: false,
-                  ),
-                );
-              },
+              loading: _saving,
+              onTap: _save,
             ),
           ],
         ),
@@ -645,35 +664,19 @@ class _AddMethodSheetState extends State<_AddMethodSheet> {
   }
 }
 
-// ── Data models ────────────────────────────────────────────────────────────────
-
-class _PayMethod {
-  final String type;
-  final String detail;
-  final IconData icon;
-  final Color color;
-  final bool isDefault;
-
-  const _PayMethod({
-    required this.type,
-    required this.detail,
-    required this.icon,
-    required this.color,
-    required this.isDefault,
-  });
-
-  _PayMethod copyWith({bool? isDefault}) => _PayMethod(
-        type: type,
-        detail: detail,
-        icon: icon,
-        color: color,
-        isDefault: isDefault ?? this.isDefault,
-      );
-}
+// ── Payment kinds ──────────────────────────────────────────────────────────────
 
 class _AcceptedMethod {
-  final String name;
+  final String type, name;
   final IconData icon;
   final Color color;
-  const _AcceptedMethod(this.name, this.icon, this.color);
+  const _AcceptedMethod(this.type, this.name, this.icon, this.color);
 }
+
+// The label, icon and colour of a payment type from the API.
+_AcceptedMethod _kindOf(String type) => switch (type) {
+  'jazzCash' => _AcceptedMethod(type, 'JazzCash', Icons.account_balance_wallet_rounded, AppColors.warning),
+  'easyPaisa' => _AcceptedMethod(type, 'EasyPaisa', Icons.mobile_friendly_rounded, AppColors.success),
+  'bank' => _AcceptedMethod(type, 'Bank Transfer', Icons.account_balance_rounded, AppColors.info),
+  _ => _AcceptedMethod(type, 'Debit / Credit Card', Icons.credit_card_rounded, AppColors.primary),
+};

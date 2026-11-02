@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -34,8 +35,13 @@ class _DisputesScreenState extends State<DisputesScreen>
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final data = await _service.getDisputes();
-    if (mounted) setState(() { _all = data; _loading = false; });
+    try {
+      final data = await _service.getDisputes();
+      if (mounted) setState(() => _all = data);
+    } on AdminApiException {
+      // AdminApi already showed the message.
+    }
+    if (mounted) setState(() => _loading = false);
   }
 
   List<AdminDispute> get _open => _all.where((d) => d.status == 'Open').toList();
@@ -130,7 +136,7 @@ class _DisputesScreenState extends State<DisputesScreen>
               label: 'Confirm Resolution',
               onPressed: () async {
                 Navigator.pop(ctx);
-                await _service.resolveDispute(dispute.id, _resolutionType, notesCtrl.text);
+                if (!await _service.resolveDispute(dispute.id, _resolutionType, notesCtrl.text)) return;
                 _load();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

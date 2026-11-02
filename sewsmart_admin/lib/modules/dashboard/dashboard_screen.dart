@@ -3,6 +3,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -16,6 +17,8 @@ class DashboardScreen extends StatefulWidget {
 class _DashboardScreenState extends State<DashboardScreen> {
   final _service = AdminService();
   PlatformStats? _stats;
+  // The dashboard could not be loaded; the reason was shown in a snack bar.
+  bool _failed = false;
   List<MonthlyRevenue> _monthlyRevenue = [];
   List<AdminOrder> _recentOrders = [];
   List<TopTailor> _topTailors = [];
@@ -32,17 +35,22 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final revenueFuture = _service.getMonthlyRevenue();
     final ordersFuture = _service.getRecentOrders();
     final tailorsFuture = _service.getTopTailors();
-    final stats = await statsFuture;
-    final revenue = await revenueFuture;
-    final orders = await ordersFuture;
-    final tailors = await tailorsFuture;
-    if (mounted) {
-      setState(() {
-        _stats = stats;
-        _monthlyRevenue = revenue;
-        _recentOrders = orders;
-        _topTailors = tailors;
-      });
+    try {
+      final stats = await statsFuture;
+      final revenue = await revenueFuture;
+      final orders = await ordersFuture;
+      final tailors = await tailorsFuture;
+      if (mounted) {
+        setState(() {
+          _stats = stats;
+          _monthlyRevenue = revenue;
+          _recentOrders = orders;
+          _topTailors = tailors;
+          _failed = false;
+        });
+      }
+    } on AdminApiException {
+      if (mounted) setState(() => _failed = true);
     }
   }
 
@@ -56,7 +64,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
   Widget build(BuildContext context) {
     final stats = _stats;
     if (stats == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: _failed
+            ? AdminButton(label: 'Try again', icon: Icons.refresh_rounded, onPressed: () {
+                setState(() => _failed = false);
+                _loadStats();
+              })
+            : const CircularProgressIndicator(),
+      );
     }
 
     return SingleChildScrollView(
@@ -124,8 +139,6 @@ class _StatsRow1 extends StatelessWidget {
             iconColor: AdminColors.customerColor,
             value: '${stats.totalUsers}',
             label: 'Total Users',
-            changeText: '+12%',
-            isPositiveChange: true,
           ),
         ),
         const SizedBox(width: 16),
@@ -135,8 +148,6 @@ class _StatsRow1 extends StatelessWidget {
             iconColor: AdminColors.info,
             value: '${stats.activeOrders}',
             label: 'Active Orders',
-            changeText: '+8%',
-            isPositiveChange: true,
           ),
         ),
         const SizedBox(width: 16),
@@ -146,8 +157,12 @@ class _StatsRow1 extends StatelessWidget {
             iconColor: AdminColors.success,
             value: 'Rs. ${fmt(stats.thisMonthRevenue)}',
             label: 'Revenue This Month',
-            changeText: '+13%',
-            isPositiveChange: true,
+            // Compared with last month, when there was revenue to compare with.
+            changeText: stats.lastMonthRevenue > 0
+                ? '${stats.thisMonthRevenue >= stats.lastMonthRevenue ? '+' : ''}'
+                    '${((stats.thisMonthRevenue - stats.lastMonthRevenue) / stats.lastMonthRevenue * 100).toStringAsFixed(0)}%'
+                : null,
+            isPositiveChange: stats.thisMonthRevenue >= stats.lastMonthRevenue,
           ),
         ),
         const SizedBox(width: 16),
@@ -157,8 +172,6 @@ class _StatsRow1 extends StatelessWidget {
             iconColor: AdminColors.warning,
             value: '${stats.pendingVerifications}',
             label: 'Pending Verifications',
-            changeText: '+2',
-            isPositiveChange: false,
           ),
         ),
       ],
@@ -180,19 +193,6 @@ class _StatsRow2 extends StatelessWidget {
             iconColor: AdminColors.tailorColor,
             value: '${stats.registeredTailors}',
             label: 'Registered Tailors',
-            changeText: '+5%',
-            isPositiveChange: true,
-          ),
-        ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: StatCard(
-            icon: Icons.delivery_dining_rounded,
-            iconColor: AdminColors.riderColor,
-            value: '${stats.activeRiders}',
-            label: 'Active Riders',
-            changeText: '+3%',
-            isPositiveChange: true,
           ),
         ),
         const SizedBox(width: 16),
@@ -202,8 +202,6 @@ class _StatsRow2 extends StatelessWidget {
             iconColor: AdminColors.error,
             value: '${stats.openDisputes}',
             label: 'Open Disputes',
-            changeText: '-1',
-            isPositiveChange: true,
           ),
         ),
         const SizedBox(width: 16),
@@ -213,8 +211,6 @@ class _StatsRow2 extends StatelessWidget {
             iconColor: AdminColors.warning,
             value: stats.averageTailorRating.toStringAsFixed(1),
             label: 'Avg. Tailor Rating',
-            changeText: '+0.2',
-            isPositiveChange: true,
           ),
         ),
       ],
@@ -550,18 +546,22 @@ class _PendingVerificationsCardState extends State<_PendingVerificationsCard> {
   }
 
   Future<void> _load() async {
-    final pending = await _service.getPendingVerifications();
-    if (mounted) {
-      setState(() {
-        _items = pending.take(3).toList();
-        _loading = false;
-      });
+    try {
+      final pending = await _service.getPendingVerifications();
+      if (mounted) setState(() => _items = pending.take(3).toList());
+    } on AdminApiException {
+      // AdminApi already showed the message.
     }
+    if (mounted) setState(() => _loading = false);
   }
 
   void _approve(String id) async {
     setState(() => _processing.add(id));
-    await _service.approveVerification(id);
+    final ok = await _service.approveVerification(id);
+    if (!ok) {
+      if (mounted) setState(() => _processing.remove(id));
+      return;
+    }
     if (mounted) {
       setState(() {
         _processing.remove(id);
@@ -579,7 +579,11 @@ class _PendingVerificationsCardState extends State<_PendingVerificationsCard> {
 
   void _reject(String id) async {
     setState(() => _processing.add(id));
-    await _service.rejectVerification(id, 'Rejected from dashboard');
+    final ok = await _service.rejectVerification(id, 'Rejected from dashboard');
+    if (!ok) {
+      if (mounted) setState(() => _processing.remove(id));
+      return;
+    }
     if (mounted) {
       setState(() {
         _processing.remove(id);
@@ -640,9 +644,7 @@ class _PendingVerificationsCardState extends State<_PendingVerificationsCard> {
                         AdminAvatar(
                           name: v.name,
                           size: 40,
-                          color: v.role == 'tailor'
-                              ? AdminColors.tailorColor
-                              : AdminColors.riderColor,
+                          color: AdminColors.tailorColor,
                         ),
                         const SizedBox(width: 12),
                         Expanded(
@@ -657,7 +659,7 @@ class _PendingVerificationsCardState extends State<_PendingVerificationsCard> {
                                 ),
                               ),
                               Text(
-                                '${v.city} • ${v.role.toUpperCase()} • Submitted ${v.submittedDate}',
+                                '${v.city} • TAILOR • Submitted ${v.submittedDate}',
                                 style: GoogleFonts.poppins(
                                   fontSize: 11,
                                   color: AdminColors.textSecondary,
@@ -667,10 +669,8 @@ class _PendingVerificationsCardState extends State<_PendingVerificationsCard> {
                           ),
                         ),
                         AdminBadge(
-                          label: v.role,
-                          color: v.role == 'tailor'
-                              ? AdminColors.tailorColor
-                              : AdminColors.riderColor,
+                          label: 'tailor',
+                          color: AdminColors.tailorColor,
                         ),
                         const SizedBox(width: 12),
                         AdminButton(

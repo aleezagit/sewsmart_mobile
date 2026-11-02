@@ -16,6 +16,12 @@ class Validators {
         (digits.length == 12 && digits.startsWith('923'));
   }
 
+  // A mobile number as the backend stores it: 03001234567.
+  static String normalizeMobile(String value) {
+    final digits = digitsOnly(value);
+    return digits.length == 12 && digits.startsWith('92') ? '0${digits.substring(2)}' : digits;
+  }
+
   // A CNIC number: 13 digits, with or without dashes (35202-1234567-1).
   static bool isCnic(String value) => digitsOnly(value).length == 13;
 
@@ -24,7 +30,6 @@ class Validators {
       RegExp(r'^PK\d{2}[A-Z]{4}\d{16}$').hasMatch(value.replaceAll(' ', '').toUpperCase());
 
   // What to fix in a payout account form, or null when it is complete.
-  // Tailors and riders use the same form.
   static String? payoutAccountProblem({
     required bool isBank,
     required String number,
@@ -33,7 +38,7 @@ class Validators {
     String iban = '',
   }) {
     if (isBank) {
-      if (bankName.trim().isEmpty) return 'Enter the bank name';
+      if (bankName.trim().isEmpty) return 'Choose your bank';
       if (digitsOnly(number).length < 8) return 'Enter the full account number';
       if (iban.trim().isNotEmpty && !isIban(iban)) {
         return 'Enter a valid IBAN, e.g. PK36HABB0000123456789012';

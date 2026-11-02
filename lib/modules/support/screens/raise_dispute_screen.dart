@@ -69,17 +69,18 @@ class _RaiseDisputeScreenState extends State<RaiseDisputeScreen> {
       return;
     }
     setState(() => _submitting = true);
-    final dispute = await SupportService().raiseDispute(
-      orderId: widget.order.id,
-      reason: reason,
-      details: details,
-    );
-    if (!mounted) return;
-    setState(() {
-      _submitting = false;
-      _submitted = dispute;
-    });
-    if (dispute == null) _showMessage('This order already has an open dispute', AppColors.error);
+    try {
+      final dispute = await SupportService().raiseDispute(
+        orderId: widget.order.id,
+        reason: reason,
+        details: details,
+      );
+      if (mounted) setState(() { _submitting = false; _submitted = dispute; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _showMessage('$e', AppColors.error);
+    }
   }
 
   @override

@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'dart:math' as math;
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -18,6 +19,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
   final _service = AdminService();
   AdminReport? _report;
   String _range = 'This Month';
+  // The days picked for the Custom range.
+  DateTimeRange? _dates;
+  bool _failed = false;
 
   final _ranges = ['Today', 'This Week', 'This Month', 'Custom'];
 
@@ -30,16 +34,43 @@ class _ReportsScreenState extends State<ReportsScreen> {
   // Runs on open and again whenever the range chip changes.
   Future<void> _load() async {
     final range = _range;
-    final report = await _service.getReports(range: range);
-    // A late reply for an older range must not replace the current one.
-    if (mounted && range == _range) setState(() => _report = report);
+    try {
+      final report = await _service.getReports(range: range, dates: _dates);
+      // A late reply for an older range must not replace the current one.
+      if (mounted && range == _range) setState(() { _report = report; _failed = false; });
+    } on AdminApiException {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  Future<void> _pickRange(String range) async {
+    if (range == 'Custom') {
+      final now = DateTime.now();
+      final picked = await showDateRangePicker(
+        context: context,
+        firstDate: DateTime(now.year - 3),
+        lastDate: now,
+        initialDateRange: _dates,
+      );
+      if (picked == null) return;
+      _dates = picked;
+    }
+    setState(() => _range = range);
+    _load();
   }
 
   @override
   Widget build(BuildContext context) {
     final report = _report;
     if (report == null) {
-      return const Center(child: CircularProgressIndicator());
+      return Center(
+        child: _failed
+            ? AdminButton(label: 'Try again', icon: Icons.refresh_rounded, onPressed: () {
+                setState(() => _failed = false);
+                _load();
+              })
+            : const CircularProgressIndicator(),
+      );
     }
     final stats = report.stats;
     final monthly = report.monthlyRevenue;
@@ -58,17 +89,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
           PageHeader(
             title: 'Reports & Analytics',
             subtitle: 'Platform performance and insights',
-            action: AdminButton(
-              label: 'Export PDF',
-              icon: Icons.picture_as_pdf_rounded,
-              isSmall: true,
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text('Report exported as PDF!', style: GoogleFonts.poppins()),
-                  backgroundColor: AdminColors.success,
-                ),
-              ),
-            ),
           ),
           const SizedBox(height: 20),
 
@@ -79,10 +99,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               return Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: GestureDetector(
-                  onTap: () {
-                    setState(() => _range = r);
-                    _load();
-                  },
+                  onTap: () => _pickRange(r),
                   child: AnimatedContainer(
                     duration: const Duration(milliseconds: 150),
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -116,8 +133,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   iconColor: AdminColors.customerColor,
                   value: '${stats.totalUsers}',
                   label: 'Total Users',
-                  changeText: '+12%',
-                  isPositiveChange: true,
                 ),
               ),
               const SizedBox(width: 16),
@@ -127,8 +142,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   iconColor: AdminColors.info,
                   value: '${stats.totalOrders}',
                   label: 'Total Orders',
-                  changeText: '+8%',
-                  isPositiveChange: true,
                 ),
               ),
               const SizedBox(width: 16),
@@ -138,8 +151,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   iconColor: AdminColors.success,
                   value: 'Rs. ${(stats.totalRevenue / 1000000).toStringAsFixed(1)}M',
                   label: 'Total Revenue',
-                  changeText: '+15%',
-                  isPositiveChange: true,
                 ),
               ),
             ],
@@ -153,19 +164,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   iconColor: AdminColors.tailorColor,
                   value: '${stats.registeredTailors}',
                   label: 'Active Tailors',
-                  changeText: '+5%',
-                  isPositiveChange: true,
                 ),
               ),
               const SizedBox(width: 16),
               Expanded(
                 child: StatCard(
-                  icon: Icons.delivery_dining_rounded,
-                  iconColor: AdminColors.riderColor,
-                  value: '${stats.activeRiders}',
-                  label: 'Delivery Riders',
-                  changeText: '+3%',
-                  isPositiveChange: true,
+                  icon: Icons.gavel_rounded,
+                  iconColor: AdminColors.error,
+                  value: '${stats.openDisputes}',
+                  label: 'Open Disputes',
                 ),
               ),
               const SizedBox(width: 16),
@@ -175,8 +182,6 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   iconColor: AdminColors.warning,
                   value: stats.averageTailorRating.toStringAsFixed(1),
                   label: 'Avg. Rating',
-                  changeText: '+0.2',
-                  isPositiveChange: true,
                 ),
               ),
             ],

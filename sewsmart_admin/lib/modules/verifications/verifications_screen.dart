@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -12,9 +13,7 @@ class VerificationsScreen extends StatefulWidget {
   State<VerificationsScreen> createState() => _VerificationsScreenState();
 }
 
-class _VerificationsScreenState extends State<VerificationsScreen>
-    with SingleTickerProviderStateMixin {
-  late TabController _roleTabController;
+class _VerificationsScreenState extends State<VerificationsScreen> {
   final _service = AdminService();
   List<PendingVerification> _all = [];
   bool _loading = true;
@@ -23,43 +22,31 @@ class _VerificationsScreenState extends State<VerificationsScreen>
   @override
   void initState() {
     super.initState();
-    _roleTabController = TabController(length: 2, vsync: this);
     _load();
-  }
-
-  @override
-  void dispose() {
-    _roleTabController.dispose();
-    super.dispose();
   }
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    final data = await _service.getAllVerifications();
-    if (mounted) {
-      setState(() {
-        _all = data;
-        _loading = false;
-      });
+    try {
+      final data = await _service.getAllVerifications();
+      if (mounted) setState(() => _all = data);
+    } on AdminApiException {
+      // AdminApi already showed the message.
     }
+    if (mounted) setState(() => _loading = false);
   }
 
-  List<PendingVerification> _getItems(String role) {
-    return _all.where((v) {
-      final matchRole = v.role == role;
-      final matchStatus = _statusFilter == 'All' || v.status == _statusFilter;
-      return matchRole && matchStatus;
-    }).toList();
-  }
+  List<PendingVerification> get _items =>
+      _all.where((v) => _statusFilter == 'All' || v.status == _statusFilter).toList();
 
-  Future<void> _approve(String id, String role) async {
-    await _service.approveVerification(id);
+  Future<void> _approve(String id) async {
+    if (!await _service.approveVerification(id)) return;
     _load();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            '${role[0].toUpperCase()}${role.substring(1)} account activated successfully!',
+            'Tailor account verified successfully!',
             style: GoogleFonts.poppins(),
           ),
           backgroundColor: AdminColors.success,
@@ -92,7 +79,7 @@ class _VerificationsScreenState extends State<VerificationsScreen>
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(ctx);
-              await _service.rejectVerification(id, ctrl.text);
+              if (!await _service.rejectVerification(id, ctrl.text)) return;
               _load();
               if (mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
@@ -118,15 +105,9 @@ class _VerificationsScreenState extends State<VerificationsScreen>
   Future<void> _requestMoreDocs(String id) async {
     final idx = _all.indexWhere((v) => v.id == id);
     final name = idx == -1 ? 'the applicant' : _all[idx].name;
-    final sent = await _service.requestMoreDocuments(id);
-    if (!mounted) return;
+    if (!await _service.requestMoreDocuments(id) || !mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          sent ? 'Document request sent to $name.' : 'Could not send the document request.',
-          style: GoogleFonts.poppins(),
-        ),
-      ),
+      SnackBar(content: Text('Document request sent to $name.', style: GoogleFonts.poppins())),
     );
   }
 
@@ -141,7 +122,7 @@ class _VerificationsScreenState extends State<VerificationsScreen>
         children: [
           PageHeader(
             title: 'Verifications',
-            subtitle: 'Review and approve tailor and rider applications',
+            subtitle: 'Review and approve tailor applications',
             badge: pendingCount > 0
                 ? AdminBadge(label: '$pendingCount pending', color: AdminColors.warning)
                 : null,
@@ -179,60 +160,14 @@ class _VerificationsScreenState extends State<VerificationsScreen>
           ),
           const SizedBox(height: 16),
 
-          // Role tabs
-          TabBar(
-            controller: _roleTabController,
-            isScrollable: true,
-            labelColor: AdminColors.primary,
-            unselectedLabelColor: AdminColors.textSecondary,
-            indicatorColor: AdminColors.primary,
-            labelStyle: GoogleFonts.poppins(fontSize: 13, fontWeight: FontWeight.w600),
-            unselectedLabelStyle: GoogleFonts.poppins(fontSize: 13),
-            tabs: [
-              Tab(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.design_services_rounded, size: 16),
-                    const SizedBox(width: 6),
-                    Text('Tailors (${_getItems('tailor').length})'),
-                  ],
-                ),
-              ),
-              Tab(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.delivery_dining_rounded, size: 16),
-                    const SizedBox(width: 6),
-                    Text('Riders (${_getItems('rider').length})'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-
           SizedBox(
             height: MediaQuery.sizeOf(context).height - 320,
-            child: TabBarView(
-              controller: _roleTabController,
-              children: [
-                _VerificationList(
-                  items: _getItems('tailor'),
-                  loading: _loading,
-                  onApprove: (id) => _approve(id, 'tailor'),
-                  onReject: _showRejectDialog,
-                  onRequestDocs: _requestMoreDocs,
-                ),
-                _VerificationList(
-                  items: _getItems('rider'),
-                  loading: _loading,
-                  onApprove: (id) => _approve(id, 'rider'),
-                  onReject: _showRejectDialog,
-                  onRequestDocs: _requestMoreDocs,
-                ),
-              ],
+            child: _VerificationList(
+              items: _items,
+              loading: _loading,
+              onApprove: _approve,
+              onReject: _showRejectDialog,
+              onRequestDocs: _requestMoreDocs,
             ),
           ),
         ],
@@ -302,7 +237,7 @@ class _VerificationCard extends StatelessWidget {
     final v = verification;
     final isPending = v.status == 'Pending';
     final isApproved = v.status == 'Approved';
-    final color = v.role == 'tailor' ? AdminColors.tailorColor : AdminColors.riderColor;
+    const color = AdminColors.tailorColor;
 
     return AdminCard(
       child: Column(
@@ -339,15 +274,15 @@ class _VerificationCard extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              _DocCard(label: 'CNIC Front', icon: Icons.badge_rounded, color: AdminColors.info, submitted: true),
+              _DocCard(label: 'CNIC Front', icon: Icons.badge_rounded, color: AdminColors.info, url: v.documents['cnicFront']),
               const SizedBox(width: 12),
-              _DocCard(label: 'CNIC Back', icon: Icons.badge_outlined, color: AdminColors.info, submitted: true),
+              _DocCard(label: 'CNIC Back', icon: Icons.badge_outlined, color: AdminColors.info, url: v.documents['cnicBack']),
               const SizedBox(width: 12),
               _DocCard(
-                label: v.role == 'tailor' ? 'Business Proof' : 'Driving License',
-                icon: v.role == 'tailor' ? Icons.storefront_rounded : Icons.drive_eta_rounded,
+                label: 'Business Proof',
+                icon: Icons.storefront_rounded,
                 color: v.documentsSubmitted ? color : AdminColors.border,
-                submitted: v.documentsSubmitted,
+                url: v.documents['businessProof'],
               ),
             ],
           ),
@@ -446,22 +381,59 @@ class _VerificationCard extends StatelessWidget {
   }
 }
 
+// One document of a request. A sent document opens full size when tapped.
 class _DocCard extends StatelessWidget {
   final String label;
   final IconData icon;
   final Color color;
-  final bool submitted;
+  // The uploaded image, or null when the document was not sent.
+  final String? url;
 
   const _DocCard({
     required this.label,
     required this.icon,
     required this.color,
-    required this.submitted,
+    this.url,
   });
+
+  bool get submitted => url != null && url!.isNotEmpty;
+
+  void _open(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => Dialog(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: Text(label, style: GoogleFonts.poppins(fontWeight: FontWeight.w600)),
+            ),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720, maxHeight: 560),
+              child: InteractiveViewer(
+                child: Image.network(
+                  url!,
+                  errorBuilder: (_, _, _) => Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text('The image could not be loaded.', style: GoogleFonts.poppins()),
+                  ),
+                ),
+              ),
+            ),
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Close')),
+          ],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return InkWell(
+      onTap: submitted ? () => _open(context) : null,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
       width: 130,
       height: 90,
       decoration: BoxDecoration(
@@ -498,6 +470,6 @@ class _DocCard extends StatelessWidget {
           ),
         ],
       ),
-    );
+    ));
   }
 }

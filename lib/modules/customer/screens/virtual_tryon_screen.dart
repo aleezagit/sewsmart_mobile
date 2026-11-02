@@ -1,7 +1,13 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import 'package:image_picker/image_picker.dart';
+import '../../../core/models/app_models.dart';
+import '../../../core/utils/image_picking.dart';
+import '../services/customer_service.dart';
 
 class VirtualTryOnScreen extends StatefulWidget {
   const VirtualTryOnScreen({super.key});
@@ -13,9 +19,14 @@ class VirtualTryOnScreen extends StatefulWidget {
 class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
     with SingleTickerProviderStateMixin {
   final _commandCtrl = TextEditingController();
-  bool _hasImage = false;
+  // The full-body photo the customer picked.
+  XFile? _photo;
+  // The photo of the garment to try on.
+  XFile? _garment;
   bool _processing = false;
-  bool _hasResult = false;
+  TryOnResult? _result;
+  bool _saving = false;
+  bool get _hasResult => _result != null;
   String _selectedGarment = 'Bridal Lehenga';
   late AnimationController _spinCtrl;
   // How the result is shown: turned left or right around its middle, and zoomed.
@@ -49,29 +60,55 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
   }
 
   Future<void> _applyTryOn() async {
-    if (!_hasImage) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Please upload your photo first',
-              style: GoogleFonts.poppins()),
-          backgroundColor: AppColors.warning,
-        ),
-      );
+    if (_photo == null || _garment == null) {
+      showMessage(context, _photo == null ? 'Please add your photo first' : 'Please add the dress photo', success: false);
       return;
     }
     setState(() {
       _processing = true;
-      _hasResult = false;
+      _result = null;
       _angle = 0;
       _zoomed = false;
     });
-    await Future.delayed(const Duration(seconds: 3));
-    if (mounted) {
-      setState(() {
-        _processing = false;
-        _hasResult = true;
-      });
+    // The server waits for the try-on service to render the image.
+    try {
+      final result = await CustomerService().generateTryOn(
+        photo: _photo!,
+        garment: _garment!,
+        garmentType: _selectedGarment,
+        command: _commandCtrl.text,
+      );
+      if (mounted) setState(() { _processing = false; _result = result; });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _processing = false);
+      showError(context, e);
     }
+  }
+
+  Future<void> _pickPhoto() async {
+    final photo = await pickImage(context, title: 'Your full-body photo');
+    if (photo != null && mounted) setState(() { _photo = photo; _result = null; });
+  }
+
+  Future<void> _pickGarment() async {
+    final garment = await pickImage(context, title: 'Photo of the dress');
+    if (garment != null && mounted) setState(() { _garment = garment; _result = null; });
+  }
+
+  Future<void> _save() async {
+    final result = _result;
+    if (result == null || result.isSaved || _saving) return;
+    setState(() => _saving = true);
+    try {
+      final saved = await CustomerService().saveTryOn(result.id);
+      if (!mounted) return;
+      setState(() => _result = saved);
+      showMessage(context, 'Try-on saved!');
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) setState(() => _saving = false);
   }
 
   @override
@@ -93,7 +130,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const SizedBox(height: 20),
-                      _build3DViewer(),
+                      _buildViewer(),
                       const SizedBox(height: 24),
                       _buildUploadSection(),
                       const SizedBox(height: 20),
@@ -166,7 +203,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
               border:
                   Border.all(color: AppColors.teal.withValues(alpha: 0.4)),
             ),
-            child: Text('3D  AI',
+            child: Text('AI Try-On',
                 style: GoogleFonts.poppins(
                     color: AppColors.tealLight,
                     fontSize: 10,
@@ -177,8 +214,8 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
     );
   }
 
-  // ── 3D Viewer ────────────────────────────────────────────────────────────────
-  Widget _build3DViewer() {
+  // ── Result viewer ────────────────────────────────────────────────────────────────
+  Widget _buildViewer() {
     return Container(
       height: 270,
       decoration: BoxDecoration(
@@ -242,7 +279,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
                     child: AnimatedScale(
                       scale: _zoomed ? 1.3 : 1.0,
                       duration: const Duration(milliseconds: 250),
-                      child: _ModelResult(garment: _selectedGarment),
+                      child: _ModelResult(result: _result!),
                     ),
                   )
                 : _ModelPlaceholder(),
@@ -271,7 +308,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
                         shape: BoxShape.circle),
                   ),
                   const SizedBox(width: 4),
-                  Text('3D View',
+                  Text('Try-On View',
                       style: GoogleFonts.poppins(
                           color: AppColors.tealLight,
                           fontSize: 9,
@@ -305,89 +342,27 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
 
   // ── Upload Section ───────────────────────────────────────────────────────────
   Widget _buildUploadSection() {
-    return GestureDetector(
-      onTap: () => setState(() => _hasImage = true),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: _hasImage
-              ? AppColors.success.withValues(alpha: 0.07)
-              : AppColors.card,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: _hasImage
-                ? AppColors.success.withValues(alpha: 0.4)
-                : AppColors.divider,
-          ),
+    return Column(
+      children: [
+        _UploadTile(
+          title: 'Your Photo',
+          hint: 'A full-body photo, standing straight, in plain clothes',
+          icon: Icons.person_rounded,
+          file: _photo,
+          onTap: _pickPhoto,
         ),
-        child: Row(
-          children: [
-            Container(
-              width: 52,
-              height: 52,
-              decoration: BoxDecoration(
-                color: (_hasImage ? AppColors.success : AppColors.primary)
-                    .withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Icon(
-                _hasImage
-                    ? Icons.check_circle_rounded
-                    : Icons.add_a_photo_rounded,
-                color: _hasImage
-                    ? AppColors.success
-                    : AppColors.primaryLight,
-                size: 24,
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _hasImage ? 'Photo Uploaded!' : 'Upload Your Photo',
-                    style: GoogleFonts.poppins(
-                        color: AppColors.textPrimary,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13),
-                  ),
-                  Text(
-                    _hasImage
-                        ? 'Tap to change photo'
-                        : 'Take a selfie or pick from gallery',
-                    style: GoogleFonts.poppins(
-                        color: AppColors.textMuted, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: _hasImage
-                      ? [AppColors.success, const Color(0xFF16A34A)]
-                      : [AppColors.primary, AppColors.primaryLight],
-                ),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                _hasImage ? 'Change' : 'Upload',
-                style: GoogleFonts.poppins(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
+        const SizedBox(height: 12),
+        _UploadTile(
+          title: 'Dress Photo',
+          hint: 'A clear photo of the dress on its own, on a plain background',
+          icon: Icons.checkroom_rounded,
+          file: _garment,
+          onTap: _pickGarment,
         ),
-      ),
+      ],
     );
   }
 
-  // ── Garment Selector ─────────────────────────────────────────────────────────
   Widget _buildGarmentSelector() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -445,21 +420,15 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
   }
 
   // ── Command Section ──────────────────────────────────────────────────────────
+  // Helps the model with details the photo does not show, such as the fabric.
   Widget _buildCommandSection() {
-    final suggestions = [
-      'Make it red',
-      'Add embroidery',
-      'Formal look',
-      'Traditional style',
-    ];
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(children: [
-          Icon(Icons.mic_rounded, color: AppColors.primaryLight, size: 16),
+          Icon(Icons.edit_note_rounded, color: AppColors.primaryLight, size: 18),
           const SizedBox(width: 6),
-          Text('AI Command',
+          Text('Describe the Garment (optional)',
               style: GoogleFonts.poppins(
                   color: AppColors.textPrimary,
                   fontWeight: FontWeight.w600,
@@ -467,33 +436,10 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
         ]),
         const SizedBox(height: 8),
         AppTextField(
-          hint:
-              'E.g. Show me in a royal blue bridal lehenga with silver work...',
+          hint: 'E.g. Long red silk lehenga with gold embroidery',
           icon: Icons.auto_awesome_rounded,
           ctrl: _commandCtrl,
           maxLines: 2,
-        ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 6,
-          children: suggestions
-              .map((s) => GestureDetector(
-                    onTap: () => _commandCtrl.text = s,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppColors.cardAlt,
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.divider),
-                      ),
-                      child: Text(s,
-                          style: GoogleFonts.poppins(
-                              color: AppColors.textSecondary, fontSize: 11)),
-                    ),
-                  ))
-              .toList(),
         ),
       ],
     );
@@ -523,8 +469,8 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
           ]),
           const SizedBox(height: 8),
           Text(
-            'Your virtual try-on for "$_selectedGarment" is applied. '
-            'View the 3D model above — use the rotate buttons to see all angles.',
+            'Your virtual try-on for "${_result?.garmentType ?? _selectedGarment}" is ready. '
+            'Use the buttons on the picture above to turn it and zoom in.',
             style: GoogleFonts.poppins(
                 color: AppColors.textSecondary, fontSize: 12, height: 1.5),
           ),
@@ -532,11 +478,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
           Row(children: [
             Expanded(
               child: GestureDetector(
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text('Design saved!',
-                            style: GoogleFonts.poppins()),
-                        backgroundColor: AppColors.success)),
+                onTap: _save,
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
@@ -545,7 +487,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Center(
-                    child: Text('Save Design',
+                    child: Text(_result?.isSaved == true ? 'Saved ✓' : _saving ? 'Saving...' : 'Save Design',
                         style: GoogleFonts.poppins(
                             color: Colors.white,
                             fontWeight: FontWeight.w600,
@@ -557,11 +499,7 @@ class _VirtualTryOnScreenState extends State<VirtualTryOnScreen>
             const SizedBox(width: 10),
             Expanded(
               child: GestureDetector(
-                onTap: () => ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                        content: Text('Design shared!',
-                            style: GoogleFonts.poppins()),
-                        backgroundColor: AppColors.info)),
+                onTap: () => showComingSoon(context, 'Sharing try-on results'),
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
@@ -602,23 +540,37 @@ class _ModelPlaceholder extends StatelessWidget {
                 color: Colors.white, size: 82),
           ),
           const SizedBox(height: 10),
-          Text('3D Model Preview',
+          Text('Try-On Preview',
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted, fontSize: 13)),
           const SizedBox(height: 2),
-          Text('Upload photo & select outfit',
+          Text('Add your photo and the dress',
               style: GoogleFonts.poppins(
                   color: AppColors.textMuted, fontSize: 11)),
         ],
       );
 }
 
+// The image the try-on service rendered.
 class _ModelResult extends StatelessWidget {
-  final String garment;
-  const _ModelResult({required this.garment});
+  final TryOnResult result;
+  const _ModelResult({required this.result});
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) => ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Image.network(
+          result.resultUrl,
+          height: 240,
+          fit: BoxFit.contain,
+          loadingBuilder: (context, child, progress) => progress == null
+              ? child
+              : SizedBox(height: 240, width: 160, child: Center(child: CircularProgressIndicator(color: AppColors.tealLight, strokeWidth: 2))),
+          errorBuilder: (_, _, _) => _fallback(),
+        ),
+      );
+
+  Widget _fallback() => Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
@@ -647,7 +599,7 @@ class _ModelResult extends StatelessWidget {
                 const SizedBox(height: 6),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 8),
-                  child: Text(garment,
+                  child: Text(result.garmentType,
                       style: GoogleFonts.poppins(
                           color: Colors.white,
                           fontSize: 9,
@@ -680,4 +632,65 @@ class _ViewBtn extends StatelessWidget {
           child: Icon(icon, color: AppColors.tealLight, size: 15),
         ),
       );
+}
+
+// A photo the customer adds: a thumbnail once it is picked, and a prompt before.
+class _UploadTile extends StatelessWidget {
+  final String title, hint;
+  final IconData icon;
+  final XFile? file;
+  final VoidCallback onTap;
+  const _UploadTile({required this.title, required this.hint, required this.icon, required this.file, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final picked = file != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: picked ? AppColors.success.withValues(alpha: 0.07) : AppColors.card,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: picked ? AppColors.success.withValues(alpha: 0.4) : AppColors.divider),
+        ),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: picked
+                    ? FutureBuilder<Uint8List>(
+                        future: file!.readAsBytes(),
+                        builder: (context, snapshot) => snapshot.hasData
+                            ? Image.memory(snapshot.data!, fit: BoxFit.cover)
+                            : const SizedBox.shrink(),
+                      )
+                    : Container(
+                        color: AppColors.primary.withValues(alpha: 0.12),
+                        child: Icon(icon, color: AppColors.primaryLight, size: 28),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(picked ? '$title added' : title,
+                      style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
+                  Text(picked ? 'Tap to change' : hint,
+                      style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
+                ],
+              ),
+            ),
+            Icon(picked ? Icons.check_circle_rounded : Icons.add_a_photo_rounded,
+                color: picked ? AppColors.success : AppColors.textMuted, size: 22),
+          ],
+        ),
+      ),
+    );
+  }
 }

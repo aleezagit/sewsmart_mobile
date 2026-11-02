@@ -12,5 +12,7 @@ void main() {
   testWidgets('App smoke test', (WidgetTester tester) async {
     await tester.pumpWidget(const SewSmartApp());
     expect(find.byType(SewSmartApp), findsOneWidget);
+    // Let the splash screen's timers finish before the test ends.
+    await tester.pump(const Duration(seconds: 5));
   });
 }

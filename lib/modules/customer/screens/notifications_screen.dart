@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
-import '../../../core/models/app_models.dart';
-import '../../../core/services/auth_service.dart';
-import '../services/customer_service.dart';
+import '../../../core/utils/notification_list.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -13,32 +11,7 @@ class NotificationsScreen extends StatefulWidget {
   State<NotificationsScreen> createState() => _NotificationsScreenState();
 }
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
-  List<NotificationModel> _notifications = [];
-  bool _loading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadNotifications();
-  }
-
-  Future<void> _loadNotifications() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
-    final list = await CustomerService().getNotifications(user.id);
-    if (mounted) setState(() { _notifications = list; _loading = false; });
-  }
-
-  void _markAllRead() {
-    setState(() {
-      _notifications = _notifications.map((n) => NotificationModel(
-        id: n.id, title: n.title, body: n.body,
-        type: n.type, isRead: true, createdAt: n.createdAt,
-      )).toList();
-    });
-  }
-
+class _NotificationsScreenState extends State<NotificationsScreen> with NotificationListState {
   IconData _iconForType(String type) {
     switch (type) {
       case 'order': return Icons.receipt_long_rounded;
@@ -68,7 +41,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount = _notifications.where((n) => !n.isRead).length;
+    final unreadCount = notifications.where((n) => !n.isRead).length;
 
     return Scaffold(
       backgroundColor: AppColors.bg,
@@ -96,7 +69,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     ),
                     if (unreadCount > 0)
                       GestureDetector(
-                        onTap: _markAllRead,
+                        onTap: markAllRead,
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                           decoration: BoxDecoration(
@@ -112,9 +85,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               ),
               const SizedBox(height: 8),
               Expanded(
-                child: _loading
+                child: loading
                     ? Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2))
-                    : _notifications.isEmpty
+                    : loadError != null
+                    ? LoadError(error: loadError!, onRetry: retryLoad)
+                    : notifications.isEmpty
                         ? const EmptyState(
                             icon: Icons.notifications_off_outlined,
                             title: 'No notifications yet',
@@ -123,15 +98,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         : RefreshIndicator(
                             color: AppColors.primaryLight,
                             backgroundColor: AppColors.card,
-                            onRefresh: _loadNotifications,
+                            onRefresh: loadNotifications,
                             child: ListView.separated(
                               padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                              itemCount: _notifications.length,
+                              itemCount: notifications.length,
                               separatorBuilder: (_, _) => const SizedBox(height: 10),
                               itemBuilder: (context, i) {
-                                final n = _notifications[i];
+                                final n = notifications[i];
                                 final color = _colorForType(n.type);
-                                return AnimatedContainer(
+                                return GestureDetector(
+                                  onTap: () => markRead(n),
+                                  child: AnimatedContainer(
                                   duration: const Duration(milliseconds: 200),
                                   decoration: BoxDecoration(
                                     color: n.isRead ? AppColors.card : AppColors.primary.withValues(alpha: 0.06),
@@ -209,7 +186,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                       ],
                                     ),
                                   ),
-                                );
+                                ));
                               },
                             ),
                           ),

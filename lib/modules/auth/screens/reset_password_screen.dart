@@ -2,23 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
+import '../../../core/api/api_client.dart';
 import '../../../core/services/auth_service.dart';
 import 'login_screen.dart';
 
-// The second step of a password reset. The reset email carries a code, and the
-// user types it here with the new password. [token] is filled in when the app
-// is opened from the link in the email, and the code box is then hidden.
+// The second step of a password reset. The reset email sent to [email]
+// carries a code, and the user types it here with the new password.
 class ResetPasswordScreen extends StatefulWidget {
-  final String? email;
-  final String? token;
-  const ResetPasswordScreen({super.key, this.email, this.token});
+  final String email;
+  const ResetPasswordScreen({super.key, required this.email});
 
   @override
   State<ResetPasswordScreen> createState() => _ResetPasswordScreenState();
 }
 
 class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
-  late final TextEditingController _codeCtrl = TextEditingController(text: widget.token ?? '');
+  final _codeCtrl = TextEditingController();
   final _passCtrl = TextEditingController();
   final _confirmCtrl = TextEditingController();
   bool _showPassword = false;
@@ -27,8 +26,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   bool _done = false;
   String? _errorMsg;
 
-  bool get _hasToken => (widget.token ?? '').isNotEmpty;
-  String get _email => widget.email?.trim() ?? '';
+  String get _email => widget.email.trim();
 
   @override
   void dispose() {
@@ -58,36 +56,25 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
       _loading = true;
       _errorMsg = null;
     });
-    final ok = await AuthService().resetPassword(_codeCtrl.text.trim(), _passCtrl.text.trim());
-    if (!mounted) return;
-    setState(() {
-      _loading = false;
-      _done = ok;
-      if (!ok) _errorMsg = 'This code is wrong or has expired. Ask for a new code.';
-    });
+    try {
+      await AuthService().resetPassword(_codeCtrl.text.trim(), _passCtrl.text.trim());
+      if (mounted) setState(() { _loading = false; _done = true; });
+    } on ApiException catch (e) {
+      if (mounted) setState(() { _loading = false; _errorMsg = e.message; });
+    }
   }
 
-  // Sends a fresh email. Without an email address (opened from a link) the
-  // user goes back to the forgot password screen to type it.
+  // Sends a fresh email.
   Future<void> _resend() async {
     if (_resending) return;
-    if (_email.isEmpty) {
-      Navigator.pop(context);
-      return;
-    }
     setState(() => _resending = true);
-    final ok = await AuthService().forgotPassword(_email);
-    if (!mounted) return;
-    setState(() => _resending = false);
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(
-        content: Text(
-          ok ? 'A new code was sent to $_email' : 'Could not send a new code. Try again.',
-          style: GoogleFonts.poppins(),
-        ),
-        backgroundColor: ok ? AppColors.success : AppColors.error,
-      ));
+    try {
+      await AuthService().forgotPassword(_email);
+      if (mounted) showMessage(context, 'A new code was sent to $_email');
+    } on ApiException catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) setState(() => _resending = false);
   }
 
   void _backToSignIn() {
@@ -125,14 +112,7 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
   }
 
   Widget _buildForm() {
-    final String intro;
-    if (_hasToken) {
-      intro = 'Choose a new password for your account.';
-    } else if (_email.isEmpty) {
-      intro = 'Enter the code from the reset email, then choose a new password.';
-    } else {
-      intro = 'Enter the code we sent to $_email, then choose a new password.';
-    }
+    final intro = 'Enter the code we sent to $_email, then choose a new password.';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -154,15 +134,13 @@ class _ResetPasswordScreenState extends State<ResetPasswordScreen> {
         const SizedBox(height: 8),
         Text(intro, style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 13)),
         const SizedBox(height: 28),
-        if (!_hasToken) ...[
-          AppTextField(
-            ctrl: _codeCtrl,
-            hint: 'Reset code',
-            label: 'Reset code',
-            icon: Icons.key_rounded,
-          ),
-          const SizedBox(height: 14),
-        ],
+        AppTextField(
+          ctrl: _codeCtrl,
+          hint: 'Reset code',
+          label: 'Reset code',
+          icon: Icons.key_rounded,
+        ),
+        const SizedBox(height: 14),
         AppTextField(
           ctrl: _passCtrl,
           hint: 'New password',

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -15,6 +16,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final _service = AdminService();
   bool _loading = true;
+  bool _failed = false;
 
   // Platform settings state. The values below only stand in until _load finishes.
   double _commissionRate = 8.5;
@@ -55,9 +57,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _load() async {
-    final settings = await _service.getSettings();
+    final AdminSettings settings;
+    try {
+      settings = await _service.getSettings();
+    } on AdminApiException {
+      // AdminApi showed the message. Keep the spinner replaced by a retry.
+      if (mounted) setState(() { _loading = false; _failed = true; });
+      return;
+    }
     if (!mounted) return;
     setState(() {
+      _failed = false;
       // The slider and the dropdown only accept values inside their own range.
       _commissionRate = settings.commissionRate.clamp(2, 20).toDouble();
       _categories
@@ -77,8 +87,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   // Sends the current values after a change. The screen has no Save button.
+  // When the server refuses, the screen shows what the server kept.
   Future<void> _save() async {
-    await _service.updateSettings(AdminSettings(
+    final saved = await _service.updateSettings(AdminSettings(
       commissionRate: _commissionRate,
       categories: List<String>.from(_categories),
       notifyNewOrder: _notifyNewOrder,
@@ -90,6 +101,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       twoFaEnabled: _twoFaEnabled,
       sessionTimeout: _sessionTimeout,
     ));
+    if (!saved) _load();
   }
 
   void _showMessage(String text, Color color) {
@@ -134,11 +146,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       return;
     }
     final updated = await _service.changePassword(current, next);
-    if (!mounted) return;
-    if (!updated) {
-      _showMessage('The current password is not correct.', AdminColors.error);
-      return;
-    }
+    if (!mounted || !updated) return;
     _showMessage('Password updated successfully!', AdminColors.success);
     _oldPassCtrl.clear();
     _newPassCtrl.clear();
@@ -147,6 +155,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_failed) {
+      return Center(
+        child: AdminButton(label: 'Try again', icon: Icons.refresh_rounded, onPressed: () {
+          setState(() { _failed = false; _loading = true; });
+          _load();
+        }),
+      );
+    }
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -282,7 +298,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 _ToggleRow(
                   label: 'New Verification Request',
-                  subtitle: 'Notify when a tailor or rider submits verification docs',
+                  subtitle: 'Notify when a tailor submits verification docs',
                   value: _notifyNewVerification,
                   onChanged: (v) {
                     setState(() => _notifyNewVerification = v);
@@ -463,9 +479,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 _AboutRow(label: 'App Name', value: 'SewSmart Admin Panel'),
                 _AboutRow(label: 'Version', value: 'v1.0.0 (Build 100)'),
                 _AboutRow(label: 'Platform', value: 'Flutter Web'),
-                _AboutRow(label: 'Database Status', value: 'Connected - Mock', statusColor: AdminColors.success),
-                _AboutRow(label: 'API Status', value: 'Online', statusColor: AdminColors.success),
-                _AboutRow(label: 'Last Updated', value: '2024-06-05'),
+                _AboutRow(label: 'Server', value: AdminApi.baseUrl),
                 const SizedBox(height: 12),
                 Row(
                   children: [
@@ -588,9 +602,8 @@ class _ToggleRow extends StatelessWidget {
 class _AboutRow extends StatelessWidget {
   final String label;
   final String value;
-  final Color? statusColor;
 
-  const _AboutRow({required this.label, required this.value, this.statusColor});
+  const _AboutRow({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -602,16 +615,12 @@ class _AboutRow extends StatelessWidget {
             width: 160,
             child: Text(label, style: GoogleFonts.poppins(fontSize: 13, color: AdminColors.textSecondary)),
           ),
-          if (statusColor != null) ...[
-            Icon(Icons.circle, size: 8, color: statusColor),
-            const SizedBox(width: 6),
-          ],
           Text(
             value,
             style: GoogleFonts.poppins(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: statusColor ?? AdminColors.text,
+              color: AdminColors.text,
             ),
           ),
         ],

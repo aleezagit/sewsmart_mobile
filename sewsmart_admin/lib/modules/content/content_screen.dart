@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../core/theme/admin_theme.dart';
 import '../../core/widgets/admin_widgets.dart';
+import '../../core/api/admin_api.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/models/admin_models.dart';
 
@@ -40,17 +41,21 @@ class _ContentScreenState extends State<ContentScreen>
     final designsFuture = _service.getDesigns();
     final reviewsFuture = _service.getReviews();
     final flaggedFuture = _service.getFlaggedContent();
-    final designs = await designsFuture;
-    final reviews = await reviewsFuture;
-    final flagged = await flaggedFuture;
-    if (mounted) {
-      setState(() {
-        _designs = designs;
-        _reviews = reviews;
-        _flagged = flagged;
-        _loading = false;
-      });
+    try {
+      final designs = await designsFuture;
+      final reviews = await reviewsFuture;
+      final flagged = await flaggedFuture;
+      if (mounted) {
+        setState(() {
+          _designs = designs;
+          _reviews = reviews;
+          _flagged = flagged;
+        });
+      }
+    } on AdminApiException {
+      // AdminApi already showed the message.
     }
+    if (mounted) setState(() => _loading = false);
   }
 
   void _showMessage(String text, Color color) {
@@ -156,7 +161,7 @@ class _ContentScreenState extends State<ContentScreen>
   final _designAccents = [
     AdminColors.primary,
     AdminColors.tailorColor,
-    AdminColors.riderColor,
+    AdminColors.orange,
     AdminColors.customerColor,
     AdminColors.info,
     AdminColors.warning,

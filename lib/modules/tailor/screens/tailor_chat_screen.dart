@@ -1,16 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/models/user_model.dart';
+import '../../../core/models/app_models.dart';
+import '../../../core/services/chat_service.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/widgets/shared_widgets.dart';
-
-class _ChatMessage {
-  final String text;
-  final bool fromCustomer;
-  final DateTime time;
-  const _ChatMessage({required this.text, required this.fromCustomer, required this.time});
-}
 
 // The chat for one order. Customers and tailors both open this screen, so a
 // message counts as "mine" when it comes from the signed-in user's side.
@@ -32,60 +28,69 @@ class _TailorChatScreenState extends State<TailorChatScreen> {
   final _msgCtrl = TextEditingController();
   final _scrollCtrl = ScrollController();
 
-  late List<_ChatMessage> _messages;
+  List<MessageModel> _messages = [];
+  bool _loading = true;
+  Object? _loadError;
+  bool _sending = false;
+  Timer? _poll;
 
   final UserModel? _me = AuthService().currentUser;
-  bool get _iAmTailor => _me?.role == UserRole.tailor;
-  bool _isMine(_ChatMessage m) => _iAmTailor ? !m.fromCustomer : m.fromCustomer;
+  bool _isMine(MessageModel m) => m.senderId == _me?.id;
 
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _messages = [
-      _ChatMessage(
-        text: 'Hello! I wanted to check on my order ${widget.orderId}.',
-        fromCustomer: true,
-        time: now.subtract(const Duration(hours: 2, minutes: 30)),
-      ),
-      _ChatMessage(
-        text: 'Hi! Yes, I have started working on your ${widget.orderId}. The fabric is cut and initial stitching is done.',
-        fromCustomer: false,
-        time: now.subtract(const Duration(hours: 2, minutes: 20)),
-      ),
-      _ChatMessage(
-        text: 'That sounds great! When do you think it will be ready?',
-        fromCustomer: true,
-        time: now.subtract(const Duration(hours: 2)),
-      ),
-      _ChatMessage(
-        text: 'I estimate 3-4 more days. I will send you pictures once the main fitting is done.',
-        fromCustomer: false,
-        time: now.subtract(const Duration(hours: 1, minutes: 50)),
-      ),
-      _ChatMessage(
-        text: 'Perfect, thank you so much!',
-        fromCustomer: true,
-        time: now.subtract(const Duration(hours: 1, minutes: 45)),
-      ),
-    ];
+    _load(scroll: true);
+    // New messages are asked for every few seconds until the API sends live
+    // updates (docs/API.md, section 5).
+    _poll = Timer.periodic(const Duration(seconds: 5), (_) => _load());
   }
 
   @override
   void dispose() {
+    _poll?.cancel();
     _msgCtrl.dispose();
     _scrollCtrl.dispose();
     super.dispose();
   }
 
-  void _sendMessage() {
+  Future<void> _load({bool scroll = false}) async {
+    final service = ChatService();
+    try {
+      final messages = await service.getMessages(widget.orderId);
+      if (!mounted) return;
+      final grew = messages.length != _messages.length;
+      setState(() { _messages = messages; _loading = false; _loadError = null; });
+      if (messages.any((m) => !m.isRead && m.receiverId == _me?.id)) {
+        await service.markMessagesRead(widget.orderId);
+      }
+      if (scroll || grew) _scrollToEnd();
+    } catch (e) {
+      // A failed refresh keeps the messages already shown.
+      if (mounted && _loading) setState(() { _loading = false; _loadError = e; });
+    }
+  }
+
+  Future<void> _sendMessage() async {
     final text = _msgCtrl.text.trim();
-    if (text.isEmpty) return;
-    setState(() {
-      _messages.add(_ChatMessage(text: text, fromCustomer: !_iAmTailor, time: DateTime.now()));
-      _msgCtrl.clear();
-    });
-    Future.delayed(const Duration(milliseconds: 100), () {
+    if (text.isEmpty || _sending) return;
+    setState(() => _sending = true);
+    try {
+      final message = await ChatService().sendMessage(widget.orderId, text);
+      if (!mounted) return;
+      setState(() {
+        _messages.add(message);
+        _msgCtrl.clear();
+      });
+      _scrollToEnd();
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+    if (mounted) setState(() => _sending = false);
+  }
+
+  void _scrollToEnd() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scrollCtrl.hasClients) {
         _scrollCtrl.animateTo(
           _scrollCtrl.position.maxScrollExtent,
@@ -173,6 +178,22 @@ class _TailorChatScreenState extends State<TailorChatScreen> {
   }
 
   Widget _buildMessageList() {
+    if (_loading) {
+      return Center(child: CircularProgressIndicator(color: AppColors.tealLight, strokeWidth: 2));
+    }
+    if (_loadError != null) {
+      return LoadError(error: _loadError!, onRetry: () {
+        setState(() => _loading = true);
+        _load(scroll: true);
+      });
+    }
+    if (_messages.isEmpty) {
+      return EmptyState(
+        icon: Icons.chat_bubble_outline_rounded,
+        title: 'No messages yet',
+        subtitle: 'Say hello to ${widget.contactName} about order ${widget.orderId}',
+      );
+    }
     return ListView.builder(
       controller: _scrollCtrl,
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -261,7 +282,7 @@ class _TailorChatScreenState extends State<TailorChatScreen> {
 }
 
 class _MessageBubble extends StatelessWidget {
-  final _ChatMessage message;
+  final MessageModel message;
   final bool isMe;
   // The avatar letter of whoever sent this message.
   final String initial;

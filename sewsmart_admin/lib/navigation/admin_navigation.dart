@@ -3,11 +3,11 @@ import 'package:google_fonts/google_fonts.dart';
 import '../core/theme/admin_theme.dart';
 import '../core/widgets/admin_widgets.dart';
 import '../core/models/admin_models.dart';
+import '../core/api/admin_api.dart';
 import '../core/services/admin_service.dart';
 import '../modules/dashboard/dashboard_screen.dart';
 import '../modules/users/customers_screen.dart';
 import '../modules/users/tailors_screen.dart';
-import '../modules/users/riders_screen.dart';
 import '../modules/orders/orders_screen.dart';
 import '../modules/payments/payments_screen.dart';
 import '../modules/verifications/verifications_screen.dart';
@@ -37,7 +37,6 @@ class _AdminShellState extends State<AdminShell> {
     _NavItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
     _NavItem(icon: Icons.people_rounded, label: 'Customers'),
     _NavItem(icon: Icons.design_services_rounded, label: 'Tailors'),
-    _NavItem(icon: Icons.delivery_dining_rounded, label: 'Riders'),
     _NavItem(icon: Icons.receipt_long_rounded, label: 'Orders'),
     _NavItem(icon: Icons.payments_rounded, label: 'Payments'),
     _NavItem(icon: Icons.verified_user_rounded, label: 'Verifications'),
@@ -56,9 +55,14 @@ class _AdminShellState extends State<AdminShell> {
     _loadBadges();
   }
 
+  // The badges are extras, so a failed load leaves them off.
   Future<void> _loadBadges() async {
-    final stats = await AdminService().getStats();
-    if (mounted) setState(() => _stats = stats);
+    try {
+      final stats = await AdminService().getStats();
+      if (mounted) setState(() => _stats = stats);
+    } on AdminApiException {
+      // AdminApi already showed the message.
+    }
   }
 
   int? _badgeFor(String label) {
@@ -231,14 +235,13 @@ class _AdminShellState extends State<AdminShell> {
       case 0:  return const DashboardScreen();
       case 1:  return const CustomersScreen();
       case 2:  return const TailorsScreen();
-      case 3:  return const RidersScreen();
-      case 4:  return const OrdersScreen();
-      case 5:  return const PaymentsScreen();
-      case 6:  return const VerificationsScreen();
-      case 7:  return const ReportsScreen();
-      case 8:  return const DisputesScreen();
-      case 9:  return const ContentScreen();
-      case 10: return const SettingsScreen();
+      case 3:  return const OrdersScreen();
+      case 4:  return const PaymentsScreen();
+      case 5:  return const VerificationsScreen();
+      case 6:  return const ReportsScreen();
+      case 7:  return const DisputesScreen();
+      case 8:  return const ContentScreen();
+      case 9:  return const SettingsScreen();
       default: return const DashboardScreen();
     }
   }

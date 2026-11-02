@@ -318,3 +318,71 @@ class EmptyState extends StatelessWidget {
     if (subtitle != null) Text(subtitle!, style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 12), textAlign: TextAlign.center),
   ]));
 }
+
+// ── Messages ──────────────────────────────────────────────────────────────────
+// A short message at the bottom of the screen. Pass the error caught from a
+// service call as [error]: an ApiException's text is written for the user.
+void showMessage(BuildContext context, String message, {bool success = true}) {
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text(message, style: GoogleFonts.poppins()),
+      backgroundColor: success ? AppColors.success : AppColors.error,
+      behavior: SnackBarBehavior.floating,
+    ));
+}
+
+void showError(BuildContext context, Object error) =>
+    showMessage(context, '$error', success: false);
+
+// ── Load Error ────────────────────────────────────────────────────────────────
+// Shown in place of a list or page that could not be loaded.
+class LoadError extends StatelessWidget {
+  final Object error;
+  final VoidCallback onRetry;
+  const LoadError({super.key, required this.error, required this.onRetry});
+  @override
+  Widget build(BuildContext context) => Center(child: Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(mainAxisSize: MainAxisSize.min, children: [
+      Icon(Icons.cloud_off_rounded, color: AppColors.textMuted, size: 52),
+      const SizedBox(height: 12),
+      Text('$error', textAlign: TextAlign.center,
+          style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 13)),
+      const SizedBox(height: 12),
+      TextButton.icon(
+        onPressed: onRetry,
+        icon: Icon(Icons.refresh_rounded, color: AppColors.primaryLight),
+        label: Text('Try again', style: GoogleFonts.poppins(color: AppColors.primaryLight, fontWeight: FontWeight.w600)),
+      ),
+    ]),
+  ));
+}
+
+// A picture from the web, with a spinner while it loads. [fallback] shows when
+// there is no address or the picture cannot be loaded. AI pictures can take a
+// few seconds to be drawn.
+class NetworkPicture extends StatelessWidget {
+  final String? url;
+  final Widget fallback;
+  const NetworkPicture({super.key, required this.url, required this.fallback});
+
+  @override
+  Widget build(BuildContext context) {
+    final address = url;
+    if (address == null || address.isEmpty) return fallback;
+    return Image.network(
+      address,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      height: double.infinity,
+      loadingBuilder: (_, child, progress) => progress == null
+          ? child
+          : Stack(fit: StackFit.expand, children: [
+              fallback,
+              Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2))),
+            ]),
+      errorBuilder: (_, _, _) => fallback,
+    );
+  }
+}

@@ -73,20 +73,18 @@ class _ReportSheetState extends State<_ReportSheet> {
       _sending = true;
       _error = null;
     });
-    final ok = await SupportService().reportContent(
-      targetType: widget.targetType,
-      targetId: widget.targetId,
-      reason: reason,
-      details: _detailsCtrl.text,
-    );
-    if (!mounted) return;
-    if (!ok) {
-      setState(() {
-        _sending = false;
-        _error = 'Could not send the report. Try again.';
-      });
+    try {
+      await SupportService().reportContent(
+        targetType: widget.targetType,
+        targetId: widget.targetId,
+        reason: reason,
+        details: _detailsCtrl.text,
+      );
+    } catch (e) {
+      if (mounted) setState(() { _sending = false; _error = '$e'; });
       return;
     }
+    if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
     Navigator.pop(context);
     messenger.showSnackBar(SnackBar(

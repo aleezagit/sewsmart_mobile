@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
-import '../../../core/data/mock_data.dart';
 import '../../../core/models/app_models.dart';
 import '../../../core/services/auth_service.dart';
 import '../../../core/utils/app_refresh.dart';
@@ -29,50 +28,96 @@ class _CustomerAiRecommendationsScreenState
   String _searchQuery = '';
   List<_DesignCard> _liveResults = [];
   Timer? _recordTimer;
+  Timer? _lookupTimer;
   // Ids of the designs already in the wishlist, so the sheet can say so.
   final Set<String> _savedIds = {};
+
+  // The customer's latest searches, each with designs similar to it.
+  List<SearchEntry> _mySearches = [];
+  final Map<String, List<_DesignCard>> _similar = {};
+  List<TrendingSearch> _trending = [];
+  List<_DesignCard> _youMayLike = [];
+  bool _loading = true;
+  Object? _loadError;
+
+  // How many of the latest searches get their own row.
+  static const _searchRows = 5;
 
   @override
   void initState() {
     super.initState();
     _loadSaved();
+    _load();
   }
 
+  Future<void> _load() async {
+    final service = CustomerService();
+    try {
+      final results = await Future.wait([
+        service.getMySearches(),
+        service.getTrendingSearches(),
+        service.getRecommendations(),
+      ]);
+      final searches = _latestUnique(results[0] as List<SearchEntry>);
+      final similar = await Future.wait(
+        searches.map((s) => service.getRecommendations(query: s.query, limit: 4)),
+      );
+      if (!mounted) return;
+      setState(() {
+        _mySearches = searches;
+        _similar
+          ..clear()
+          ..addAll({
+            for (var i = 0; i < searches.length; i++)
+              searches[i].query: similar[i].map(_DesignCard.new).toList(),
+          });
+        _trending = results[1] as List<TrendingSearch>;
+        _youMayLike = (results[2] as List<DesignModel>).map(_DesignCard.new).toList();
+        _loading = false;
+        _loadError = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
+  }
+
+  // The newest search of each text, up to [_searchRows].
+  List<SearchEntry> _latestUnique(List<SearchEntry> searches) {
+    final seen = <String>{};
+    return searches.where((s) => seen.add(s.query.toLowerCase())).take(_searchRows).toList();
+  }
+
+  // The wishlist only marks designs as saved, so a failed load is not shown.
   Future<void> _loadSaved() async {
-    final saved = await CustomerService().getWishlist();
-    if (!mounted) return;
-    setState(() => _savedIds
-      ..clear()
-      ..addAll(saved.map((d) => d.id)));
+    try {
+      final saved = await CustomerService().getWishlist();
+      if (!mounted) return;
+      setState(() => _savedIds
+        ..clear()
+        ..addAll(saved.map((d) => d.id)));
+    } catch (_) {}
   }
-
-  // The cards on this screen come from local lists, so their catalogue id is
-  // found by name. Once the screen reads getRecommendations, the id comes
-  // with each design.
-  DesignModel? _designFor(_DesignCard card) =>
-      MockData.designs.where((d) => d.name == card.name).firstOrNull;
 
   Future<void> _saveDesign(_DesignCard card) async {
-    final id = _designFor(card)?.id ?? '';
-    final ok = id.isNotEmpty && await CustomerService().addToWishlist(id);
-    if (ok) AppRefresh.wishlistChanged();
+    try {
+      await CustomerService().addToWishlist(card.id);
+    } catch (e) {
+      if (mounted) showError(context, e);
+      return;
+    }
+    AppRefresh.wishlistChanged();
     if (!mounted) return;
-    if (ok) setState(() => _savedIds.add(id));
+    setState(() => _savedIds.add(card.id));
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(
-        content: Text(
-          ok ? '${card.name} saved to wishlist!' : 'Could not save ${card.name}',
-          style: GoogleFonts.poppins(),
-        ),
-        backgroundColor: ok ? AppColors.success : AppColors.error,
+        content: Text('${card.name} saved to wishlist!', style: GoogleFonts.poppins()),
+        backgroundColor: AppColors.success,
         duration: const Duration(seconds: 3),
         // A snack bar with an action stays until it is tapped unless told
         // otherwise. This one should go away on its own.
         persist: false,
-        action: ok
-            ? SnackBarAction(label: 'VIEW', textColor: Colors.white, onPressed: _openSaved)
-            : null,
+        action: SnackBarAction(label: 'VIEW', textColor: Colors.white, onPressed: _openSaved),
       ));
   }
 
@@ -86,34 +131,13 @@ class _CustomerAiRecommendationsScreenState
   @override
   void dispose() {
     _recordTimer?.cancel();
+    _lookupTimer?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
 
   // ── Current user ─────────────────────────────────────────────────────────────
   UserModel? get _user => AuthService().currentUser;
-
-  // ── My previous searches (filtered for current customer) ─────────────────────
-  List<Map<String, dynamic>> get _mySearches {
-    final name = _user?.name ?? 'Ayesha Khan';
-    return MockData.searchHistory
-        .where((s) =>
-            (s['customerName'] as String).toLowerCase() == name.toLowerCase())
-        .toList();
-  }
-
-  // ── Trending: aggregate all searches by term ──────────────────────────────────
-  List<MapEntry<String, int>> get _trending {
-    final counts = <String, int>{};
-    for (final s in MockData.searchHistory) {
-      final key = _cap(s['query'] as String);
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-    return (counts.entries.toList()
-          ..sort((a, b) => b.value.compareTo(a.value)))
-        .take(10)
-        .toList();
-  }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
   String _cap(String s) {
@@ -123,33 +147,32 @@ class _CustomerAiRecommendationsScreenState
     return s[0].toUpperCase() + s.substring(1);
   }
 
-  String _timeLabel(int h) {
+  String _timeLabel(DateTime at) {
+    final h = DateTime.now().difference(at).inHours;
     if (h == 0) return 'Just now';
     if (h == 1) return '1 hr ago';
     if (h < 24) return '${h}h ago';
     return '${h ~/ 24}d ago';
   }
 
-  Color _catColor(String cat) {
-    switch (cat) {
-      case 'Bridal':  return AppColors.secondary;
-      case 'Formal':  return AppColors.info;
-      case 'Eastern': return AppColors.teal;
-      case 'Western': return AppColors.primary;
-      case 'Casual':  return AppColors.warning;
-      default:        return AppColors.textMuted;
-    }
-  }
+  Color _catColor(String cat) => switch (cat) {
+    'Bridal' => AppColors.secondary,
+    'Formal' => AppColors.info,
+    'Eastern' => AppColors.teal,
+    'Western' => AppColors.primary,
+    'Casual' => AppColors.warning,
+    _ => AppColors.textMuted,
+  };
 
   // ── Search handler ───────────────────────────────────────────────────────────
-  // Results update on every letter. The search is saved to the history (3+
-  // letters) when the customer submits or taps a trend, or once typing stops,
-  // so "vel", "velv" and "velve" are not saved as separate searches.
+  // Results follow the typing after a short pause. The search is saved to the
+  // history (3+ letters) when the customer submits or taps a trend, or once
+  // typing stops, so "vel", "velv" and "velve" are not saved as separate searches.
   void _onSearch(String q, {bool save = false}) {
     final trimmed = q.trim();
-    final results = trimmed.isEmpty ? <_DesignCard>[] : _similarFor(trimmed);
 
     _recordTimer?.cancel();
+    _lookupTimer?.cancel();
     if (trimmed.length >= 3) {
       if (save) {
         _saveSearch(trimmed);
@@ -159,15 +182,31 @@ class _CustomerAiRecommendationsScreenState
     }
     setState(() {
       _searchQuery = trimmed;
-      _liveResults = results;
+      if (trimmed.isEmpty) _liveResults = [];
     });
+    if (trimmed.isEmpty) return;
+    _lookupTimer = Timer(const Duration(milliseconds: 300), () => _lookUp(trimmed));
   }
 
-  void _saveSearch(String query) {
-    final userName = _user?.name ?? 'Customer';
-    MockData.recordSearch(query, customerName: userName);
-    // The history sections read the saved searches, so show the new one.
-    if (mounted) setState(() {});
+  Future<void> _lookUp(String query) async {
+    try {
+      final designs = await CustomerService().getRecommendations(query: query);
+      // Only the answer for what is in the box now is shown.
+      if (!mounted || query != _searchQuery) return;
+      setState(() => _liveResults = designs.map(_DesignCard.new).toList());
+    } catch (e) {
+      if (mounted) showError(context, e);
+    }
+  }
+
+  Future<void> _saveSearch(String query) async {
+    try {
+      await CustomerService().recordSearch(query);
+      // The history sections read the saved searches, so show the new one.
+      if (mounted) await _load();
+    } catch (_) {
+      // A search that is not saved only means fewer recommendations later.
+    }
   }
 
   void _applyTrending(String term) {
@@ -177,85 +216,11 @@ class _CustomerAiRecommendationsScreenState
 
   void _clearSearch() {
     _searchCtrl.clear();
+    _lookupTimer?.cancel();
     setState(() {
       _searchQuery = '';
       _liveResults = [];
     });
-  }
-
-  // ── Similar-design lookup ─────────────────────────────────────────────────────
-  List<_DesignCard> _similarFor(String query) {
-    final q = query.toLowerCase();
-    if (q.contains('bridal') || q.contains('wedding') ||
-        q.contains('lehenga') || q.contains('nikkah')) {
-      return _kSimilar['bridal']!;
-    } else if (q.contains('shalwar') || q.contains('kameez') ||
-        q.contains('kurta') || q.contains('formal')) {
-      return _kSimilar['formal']!;
-    } else if (q.contains('anarkali') || q.contains('eastern') ||
-        q.contains('suit') || q.contains('maxi')) {
-      return _kSimilar['eastern']!;
-    } else if (q.contains('casual') || q.contains('lawn') ||
-        q.contains('summer') || q.contains('kids')) {
-      return _kSimilar['casual']!;
-    } else if (q.contains('party') || q.contains('western') ||
-        q.contains('dress') || q.contains('short')) {
-      return _kSimilar['western']!;
-    }
-    return _kSimilar['general']!;
-  }
-
-  // ── Static catalogue ──────────────────────────────────────────────────────────
-  static Map<String, List<_DesignCard>> get _kSimilar => <String, List<_DesignCard>>{
-    'bridal': [
-      _DesignCard('Heavy Bridal Lehenga',    'Rs 4,500 – 8,000',  AppColors.secondary, Icons.diamond_rounded,             'Bridal'),
-      _DesignCard('Embroidered Bridal Set',   'Rs 5,000 – 9,000',  AppColors.primary,   Icons.auto_awesome_rounded,        'Bridal'),
-      _DesignCard('Silk Wedding Gown',        'Rs 6,000 – 12,000', AppColors.gold,      Icons.star_rounded,                'Bridal'),
-      _DesignCard('Golden Nikkah Dress',      'Rs 3,500 – 6,000',  AppColors.warning,   Icons.brightness_5_rounded,        'Bridal'),
-    ],
-    'formal': [
-      _DesignCard('Formal Shalwar Kameez',    'Rs 1,800 – 3,200',  AppColors.info,      Icons.business_center_rounded,     'Formal'),
-      _DesignCard('Linen Executive Suit',     'Rs 2,200 – 4,000',  AppColors.teal,      Icons.checkroom_rounded,           'Formal'),
-      _DesignCard('Classic Kurta Pajama',     'Rs 1,500 – 2,800',  AppColors.primary,   Icons.style_rounded,               'Formal'),
-      _DesignCard('Sherwani Set',             'Rs 4,000 – 8,000',  AppColors.secondary, Icons.military_tech_rounded,       'Formal'),
-    ],
-    'eastern': [
-      _DesignCard('Long Anarkali Frock',      'Rs 2,500 – 4,500',  AppColors.teal,      Icons.layers_rounded,              'Eastern'),
-      _DesignCard('Printed Georgette Suit',   'Rs 1,800 – 3,000',  AppColors.secondary, Icons.palette_rounded,             'Eastern'),
-      _DesignCard('Floor-length Maxi',        'Rs 2,000 – 3,800',  AppColors.primary,   Icons.view_day_rounded,            'Eastern'),
-      _DesignCard('Cotton Palazzo Set',       'Rs 1,500 – 2,500',  AppColors.info,      Icons.air_rounded,                 'Eastern'),
-    ],
-    'casual': [
-      _DesignCard('Lawn Summer Suit',         'Rs 1,200 – 2,000',  AppColors.warning,   Icons.wb_sunny_rounded,            'Casual'),
-      _DesignCard('Casual Cotton Kameez',     'Rs 900 – 1,500',    AppColors.success,   Icons.dry_cleaning_rounded,        'Casual'),
-      _DesignCard('Kids Party Frock',         'Rs 800 – 1,400',    AppColors.secondary, Icons.child_care_rounded,          'Casual'),
-      _DesignCard('Comfy Loungewear Set',     'Rs 1,100 – 1,800',  AppColors.teal,      Icons.self_improvement_rounded,    'Casual'),
-    ],
-    'western': [
-      _DesignCard('Party Wear Short Dress',   'Rs 2,000 – 4,000',  AppColors.primary,   Icons.nightlife_rounded,           'Western'),
-      _DesignCard('Formal Blazer & Trousers', 'Rs 3,500 – 6,000',  AppColors.info,      Icons.work_rounded,                'Western'),
-      _DesignCard('Flared Midi Dress',        'Rs 2,200 – 3,800',  AppColors.secondary, Icons.accessibility_rounded,       'Western'),
-      _DesignCard('Denim Jacket Set',         'Rs 1,800 – 3,000',  AppColors.teal,      Icons.grid_on_rounded,             'Western'),
-    ],
-    'general': [
-      _DesignCard('Embroidered Suit',         'Rs 2,000 – 4,000',  AppColors.primary,   Icons.auto_fix_high_rounded,       'General'),
-      _DesignCard('Printed Lawn Pair',        'Rs 1,200 – 2,200',  AppColors.teal,      Icons.texture_rounded,             'General'),
-      _DesignCard('Festive Sharara',          'Rs 3,000 – 5,500',  AppColors.secondary, Icons.celebration_rounded,         'General'),
-      _DesignCard('Classic Kameez',           'Rs 1,000 – 1,800',  AppColors.warning,   Icons.checkroom_rounded,           'General'),
-    ],
-  };
-
-  // ── "You May Also Like" picks ─────────────────────────────────────────────────
-  List<_DesignCard> get _youMayLike {
-    final seen = <String>{};
-    final picks = <_DesignCard>[];
-    for (final s in _mySearches) {
-      for (final card in _similarFor(s['query'] as String)) {
-        if (seen.add(card.name) && picks.length < 6) picks.add(card);
-      }
-    }
-    if (picks.isEmpty) picks.addAll(_kSimilar['general']!);
-    return picks;
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -285,7 +250,17 @@ class _CustomerAiRecommendationsScreenState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (!isSearching) ...[
+                      if (!isSearching && _loading)
+                        Padding(
+                          padding: const EdgeInsets.all(40),
+                          child: Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2)),
+                        )
+                      else if (!isSearching && _loadError != null)
+                        LoadError(error: _loadError!, onRetry: () {
+                          setState(() => _loading = true);
+                          _load();
+                        })
+                      else if (!isSearching) ...[
                         _buildBanner(mySearches),
                         _buildTrendingRow(),
                         if (mySearches.isEmpty)
@@ -299,11 +274,9 @@ class _CustomerAiRecommendationsScreenState
                           ),
                           ...mySearches.map((s) => _SearchBlock(
                                 search: s,
-                                suggestions:
-                                    _similarFor(s['query'] as String),
-                                timeLabel: _timeLabel(s['hoursAgo'] as int),
-                                catColor:
-                                    _catColor(s['category'] as String),
+                                suggestions: _similar[s.query] ?? const [],
+                                timeLabel: _timeLabel(s.createdAt),
+                                catColor: _catColor(s.category),
                                 onCardTap: (card) =>
                                     _showDesignSheet(card),
                               )),
@@ -534,7 +507,7 @@ class _CustomerAiRecommendationsScreenState
   }
 
   // ── Banner ────────────────────────────────────────────────────────────────────
-  Widget _buildBanner(List<Map<String, dynamic>> searches) {
+  Widget _buildBanner(List<SearchEntry> searches) {
     final name = _user?.name.split(' ').first ?? 'You';
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 14, 16, 0),
@@ -614,14 +587,14 @@ class _CustomerAiRecommendationsScreenState
     final colors = [
       AppColors.secondary, AppColors.teal, AppColors.primary,
       AppColors.warning,   AppColors.info,  AppColors.success,
-      AppColors.riderColor, AppColors.gold, AppColors.primaryLight, AppColors.tealLight,
+      AppColors.orange, AppColors.gold, AppColors.primaryLight, AppColors.tealLight,
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _sectionHead('Trending This Week',
-            Icons.local_fire_department_rounded, AppColors.riderColor,
+            Icons.local_fire_department_rounded, AppColors.orange,
             top: 20, bottom: 10),
         SizedBox(
           height: 38,
@@ -633,7 +606,7 @@ class _CustomerAiRecommendationsScreenState
               final t = trends[i];
               final c = colors[i % colors.length];
               return GestureDetector(
-                onTap: () => _applyTrending(t.key),
+                onTap: () => _applyTrending(t.query),
                 child: Container(
                   margin: const EdgeInsets.only(right: 8),
                   padding: const EdgeInsets.symmetric(
@@ -647,7 +620,7 @@ class _CustomerAiRecommendationsScreenState
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(t.key,
+                      Text(_cap(t.query),
                           style: GoogleFonts.poppins(
                               color: c,
                               fontSize: 11,
@@ -660,7 +633,7 @@ class _CustomerAiRecommendationsScreenState
                           color: c.withValues(alpha: 0.2),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: Text('${t.value}',
+                        child: Text('${t.count}',
                             style: GoogleFonts.poppins(
                                 color: c,
                                 fontSize: 9,
@@ -702,7 +675,7 @@ class _CustomerAiRecommendationsScreenState
           crossAxisCount: 2,
           crossAxisSpacing: 12,
           mainAxisSpacing: 12,
-          childAspectRatio: 1.05,
+          childAspectRatio: 0.72,
         ),
         itemCount: cards.length,
         itemBuilder: (_, i) => _DesignTile(
@@ -732,7 +705,7 @@ class _CustomerAiRecommendationsScreenState
 
   // ── Design detail sheet ───────────────────────────────────────────────────────
   void _showDesignSheet(_DesignCard card) {
-    final saved = _savedIds.contains(_designFor(card)?.id);
+    final saved = _savedIds.contains(card.id);
     showModalBottomSheet(
       context: context,
       backgroundColor: AppColors.surface,
@@ -754,6 +727,21 @@ class _CustomerAiRecommendationsScreenState
               ),
             ),
             const SizedBox(height: 20),
+            // The design's picture
+            if (card.design.imageUrl != null) ...[
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: SizedBox(
+                  height: 240,
+                  width: double.infinity,
+                  child: NetworkPicture(
+                    url: card.design.imageUrl,
+                    fallback: Container(color: card.color.withValues(alpha: 0.1), child: Icon(card.icon, color: card.color, size: 40)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
             // Icon + name row
             Row(children: [
               Container(
@@ -907,7 +895,7 @@ class _CustomerAiRecommendationsScreenState
 // _SearchBlock — one "Searched X → Similar Y" row
 // ══════════════════════════════════════════════════════════════════════════════
 class _SearchBlock extends StatelessWidget {
-  final Map<String, dynamic> search;
+  final SearchEntry search;
   final List<_DesignCard> suggestions;
   final String timeLabel;
   final Color catColor;
@@ -923,8 +911,8 @@ class _SearchBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final query = search['query'] as String;
-    final cat = search['category'] as String;
+    final query = search.query;
+    final cat = search.category;
     final q = query.isEmpty ? query : query[0].toUpperCase() + query.substring(1);
 
     return Column(
@@ -973,7 +961,7 @@ class _SearchBlock extends StatelessWidget {
         ),
         // ── Horizontal card strip ─────────────────────────────────────────────
         SizedBox(
-          height: 154,
+          height: 236,
           child: ListView.builder(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.only(left: 16, right: 8),
@@ -1012,7 +1000,7 @@ class _DesignTile extends StatelessWidget {
       child: Container(
         width: width,
         margin: const EdgeInsets.only(right: 10, bottom: 2),
-        padding: const EdgeInsets.all(12),
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           gradient: LinearGradient(
             begin: Alignment.topLeft,
@@ -1029,56 +1017,47 @@ class _DesignTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 38, height: 38,
-              decoration: BoxDecoration(
-                color: card.color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
+            Expanded(
+              child: NetworkPicture(
+                url: card.design.imageUrl,
+                fallback: Center(child: Icon(card.icon, color: card.color, size: 30)),
               ),
-              child: Icon(card.icon, color: card.color, size: 20),
             ),
-            const SizedBox(height: 8),
-            Text(card.name,
-                style: GoogleFonts.poppins(
-                    color: AppColors.textPrimary,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 12),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis),
-            const Spacer(),
-            Text(card.price,
-                style: GoogleFonts.poppins(
-                    color: card.color,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 10)),
-            const SizedBox(height: 4),
-            Row(children: [
-              Expanded(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 7, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: card.color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(card.category,
+            Padding(
+              padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(card.name,
+                      style: GoogleFonts.poppins(
+                          color: AppColors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 12),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis),
+                  const SizedBox(height: 2),
+                  Text(card.price,
                       style: GoogleFonts.poppins(
                           color: card.color,
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600)),
-                ),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 10)),
+                  const SizedBox(height: 6),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: card.color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(card.category,
+                        style: GoogleFonts.poppins(
+                            color: card.color,
+                            fontSize: 9,
+                            fontWeight: FontWeight.w600)),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              Container(
-                width: 24, height: 24,
-                decoration: BoxDecoration(
-                  color: card.color.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Icon(Icons.arrow_forward_rounded,
-                    color: card.color, size: 13),
-              ),
-            ]),
+            ),
           ],
         ),
       ),
@@ -1087,11 +1066,36 @@ class _DesignTile extends StatelessWidget {
 }
 
 // ── Data models ────────────────────────────────────────────────────────────────
+// How a catalogue design is drawn: its colour and icon follow its category.
 class _DesignCard {
-  final String name, price, category;
-  final Color color;
-  final IconData icon;
-  const _DesignCard(this.name, this.price, this.color, this.icon, this.category);
+  final DesignModel design;
+  const _DesignCard(this.design);
+
+  String get id => design.id;
+  String get name => design.name;
+  String get category => design.category;
+  String get price => 'Rs ${_money(design.priceMin)} – ${_money(design.priceMax)}';
+
+  static String _money(double value) => value.toInt().toString().replaceAllMapped(
+        RegExp(r'(\d)(?=(\d{3})+$)'), (m) => '${m[1]},');
+
+  Color get color => switch (category) {
+    'Bridal' => AppColors.secondary,
+    'Formal' => AppColors.info,
+    'Eastern' => AppColors.teal,
+    'Western' => AppColors.primary,
+    'Casual' => AppColors.warning,
+    _ => AppColors.primaryLight,
+  };
+
+  IconData get icon => switch (category) {
+    'Bridal' => Icons.diamond_rounded,
+    'Formal' => Icons.business_center_rounded,
+    'Eastern' => Icons.layers_rounded,
+    'Western' => Icons.nightlife_rounded,
+    'Casual' => Icons.wb_sunny_rounded,
+    _ => Icons.checkroom_rounded,
+  };
 }
 
 class _Pill extends StatelessWidget {

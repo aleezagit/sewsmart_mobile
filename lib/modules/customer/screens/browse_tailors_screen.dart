@@ -5,9 +5,7 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
 import '../services/customer_service.dart';
-import '../../../core/services/auth_service.dart';
 import 'tailor_profile_screen.dart';
 
 class BrowseTailorsScreen extends StatefulWidget {
@@ -24,7 +22,10 @@ class _BrowseTailorsScreenState extends State<BrowseTailorsScreen> {
   late String _selectedCategory = widget.initialCategory;
   List<TailorModel> _allTailors = [];
   List<TailorModel> _filtered = [];
+  // The admin's categories, after the screen's own All chip.
+  List<String> _categories = const ['All'];
   bool _loading = true;
+  Object? _loadError;
   Timer? _recordTimer;
   String _lastRecorded = '';
 
@@ -36,11 +37,17 @@ class _BrowseTailorsScreenState extends State<BrowseTailorsScreen> {
   }
 
   Future<void> _loadTailors() async {
-    final tailors = await CustomerService().getTailors();
-    if (!mounted) return;
-    _allTailors = tailors;
-    _loading = false;
-    _applyFilter();
+    setState(() { _loading = true; _loadError = null; });
+    try {
+      final results = await Future.wait([CustomerService().getTailors(), CustomerService().getCategories()]);
+      if (!mounted) return;
+      _allTailors = results[0] as List<TailorModel>;
+      _categories = ['All', ...results[1] as List<String>];
+      _loading = false;
+      _applyFilter();
+    } catch (e) {
+      if (mounted) setState(() { _loading = false; _loadError = e; });
+    }
   }
 
   void _onSearchChanged() {
@@ -52,8 +59,8 @@ class _BrowseTailorsScreenState extends State<BrowseTailorsScreen> {
     if (query.length < 3 || query == _lastRecorded) return;
     _recordTimer = Timer(const Duration(milliseconds: 1200), () {
       _lastRecorded = query;
-      final userName = AuthService().currentUser?.name ?? 'Customer';
-      MockData.recordSearch(query, customerName: userName);
+      // A search that is not saved only means fewer recommendations later.
+      CustomerService().recordSearch(query).catchError((_) {});
     });
   }
 
@@ -113,10 +120,10 @@ class _BrowseTailorsScreenState extends State<BrowseTailorsScreen> {
                 child: ListView.separated(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
                   scrollDirection: Axis.horizontal,
-                  itemCount: MockData.categories.length,
+                  itemCount: _categories.length,
                   separatorBuilder: (_, _) => const SizedBox(width: 8),
                   itemBuilder: (context, i) {
-                    final cat = MockData.categories[i];
+                    final cat = _categories[i];
                     final selected = _selectedCategory == cat;
                     return GestureDetector(
                       onTap: () => _selectCategory(cat),
@@ -145,7 +152,9 @@ class _BrowseTailorsScreenState extends State<BrowseTailorsScreen> {
               Expanded(
                 child: _loading
                     ? Center(child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2))
-                    : _filtered.isEmpty
+                    : _loadError != null
+                        ? LoadError(error: _loadError!, onRetry: _loadTailors)
+                        : _filtered.isEmpty
                         ? EmptyState(
                             icon: Icons.search_off_rounded,
                             title: 'No tailors found',

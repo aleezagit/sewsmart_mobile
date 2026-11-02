@@ -3,7 +3,6 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
-import '../../../core/data/mock_data.dart';
 import '../../../core/services/support_service.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../../support/screens/raise_dispute_screen.dart';
@@ -20,20 +19,23 @@ class OrderTrackingScreen extends StatefulWidget {
 }
 
 class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+  // Updated after the delivery schedule is saved.
+  late OrderModel _order = widget.order;
   DateTime? _selectedDate;
   String? _selectedTimeSlot;
-  bool _scheduleSaved = false;
   bool _savingSchedule = false;
 
   final List<DateTime> _futureDates = List.generate(7, (i) => DateTime.now().add(Duration(days: i + 1)));
-  final List<String> _timeSlots = MockData.timeSlots;
+  static const _timeSlots = ['9:00 AM - 11:00 AM', '11:00 AM - 1:00 PM', '2:00 PM - 4:00 PM', '4:00 PM - 6:00 PM', '6:00 PM - 8:00 PM'];
+
+  bool get _scheduleSaved => _order.scheduledDelivery != null;
 
   // The customer's review of this order and a dispute about it, if any.
   ReviewModel? _review;
   DisputeModel? _dispute;
 
   bool get _isFinished =>
-      widget.order.status == OrderStatus.delivered || widget.order.status == OrderStatus.completed;
+      _order.status == OrderStatus.delivered || _order.status == OrderStatus.completed;
 
   @override
   void initState() {
@@ -41,20 +43,27 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
     _loadReviewAndDispute();
   }
 
+  // Without them the screen still works, so a failure only hides the two cards.
   Future<void> _loadReviewAndDispute() async {
-    final reviews = await CustomerService().getTailorReviews(widget.order.tailorId);
-    final disputes = await SupportService().getMyDisputes();
+    final List<ReviewModel> reviews;
+    final List<DisputeModel> disputes;
+    try {
+      reviews = await CustomerService().getTailorReviews(_order.tailorId);
+      disputes = await SupportService().getMyDisputes();
+    } catch (_) {
+      return;
+    }
     if (!mounted) return;
     setState(() {
-      _review = reviews.where((r) => r.orderId == widget.order.id).firstOrNull;
-      _dispute = disputes.where((d) => d.orderId == widget.order.id).firstOrNull;
+      _review = reviews.where((r) => r.orderId == _order.id).firstOrNull;
+      _dispute = disputes.where((d) => d.orderId == _order.id).firstOrNull;
     });
   }
 
   Future<void> _openReview() async {
     final sent = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(builder: (_) => WriteReviewScreen(order: widget.order)),
+      MaterialPageRoute(builder: (_) => WriteReviewScreen(order: _order)),
     );
     if (sent != true || !mounted) return;
     await _loadReviewAndDispute();
@@ -67,13 +76,13 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   Future<void> _openDispute() async {
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => RaiseDisputeScreen(order: widget.order)),
+      MaterialPageRoute(builder: (_) => RaiseDisputeScreen(order: _order)),
     );
     if (mounted) _loadReviewAndDispute();
   }
 
   int get _currentStepIndex {
-    switch (widget.order.status) {
+    switch (_order.status) {
       case OrderStatus.pending: return 0;
       case OrderStatus.accepted: return 1;
       case OrderStatus.inProgress: return 2;
@@ -94,20 +103,20 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       return;
     }
     setState(() => _savingSchedule = true);
-    final success = await CustomerService().setDeliverySchedule(
-      orderId: widget.order.id,
-      pickupDate: _selectedDate!,
-      deliveryDate: _selectedDate!.add(const Duration(days: 1)),
-      pickupSlot: _selectedTimeSlot!,
-      deliverySlot: _selectedTimeSlot!,
-    );
-    if (!mounted) return;
-    setState(() { _savingSchedule = false; _scheduleSaved = success; });
-    if (success) AppRefresh.ordersChanged();
-    if (success) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Delivery scheduled!', style: GoogleFonts.poppins(fontSize: 12)), backgroundColor: AppColors.success),
+    try {
+      final updated = await CustomerService().setDeliverySchedule(
+        orderId: _order.id,
+        deliveryDate: _selectedDate!,
+        deliverySlot: _selectedTimeSlot!,
       );
+      if (!mounted) return;
+      setState(() { _savingSchedule = false; _order = updated; });
+      AppRefresh.ordersChanged();
+      showMessage(context, 'Delivery scheduled!');
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _savingSchedule = false);
+      showError(context, e);
     }
   }
 
@@ -129,7 +138,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
         child: SafeArea(
           child: Column(
             children: [
-              SewAppBar(title: 'Track Order', subtitle: widget.order.id),
+              SewAppBar(title: 'Track Order', subtitle: _order.id),
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(20),
@@ -139,7 +148,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                       _buildOrderInfoCard(),
                       const SizedBox(height: 20),
                       _buildTimeline(),
-                      if (widget.order.status == OrderStatus.readyForDelivery && !_scheduleSaved) ...[
+                      if (_order.status == OrderStatus.readyForDelivery && !_scheduleSaved) ...[
                         const SizedBox(height: 24),
                         _buildScheduleSection(),
                       ],
@@ -176,18 +185,18 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(widget.order.id, style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
-              StatusBadge(label: widget.order.statusLabel, color: _statusColor()),
+              Text(_order.id, style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 11)),
+              StatusBadge(label: _order.statusLabel, color: _statusColor()),
             ],
           ),
           const SizedBox(height: 10),
-          Text(widget.order.garmentType, style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
+          Text(_order.garmentType, style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.bold, fontSize: 16)),
           const SizedBox(height: 6),
           Row(
             children: [
               Icon(Icons.cut_rounded, color: AppColors.textMuted, size: 13),
               const SizedBox(width: 4),
-              Text(widget.order.tailorName, style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12)),
+              Text(_order.tailorName, style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12)),
             ],
           ),
           const SizedBox(height: 12),
@@ -198,7 +207,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('Amount', style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 10)),
-                  Text('Rs ${widget.order.amount.toInt()}', style: GoogleFonts.poppins(color: AppColors.primaryLight, fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text('Rs ${_order.amount.toInt()}', style: GoogleFonts.poppins(color: AppColors.primaryLight, fontWeight: FontWeight.bold, fontSize: 16)),
                 ],
               ),
               Column(
@@ -206,7 +215,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                 children: [
                   Text('Ordered', style: GoogleFonts.poppins(color: AppColors.textMuted, fontSize: 10)),
                   Text(
-                    '${widget.order.createdAt.day}/${widget.order.createdAt.month}/${widget.order.createdAt.year}',
+                    '${_order.createdAt.day}/${_order.createdAt.month}/${_order.createdAt.year}',
                     style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12),
                   ),
                 ],
@@ -219,7 +228,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
   }
 
   Color _statusColor() {
-    switch (widget.order.status) {
+    switch (_order.status) {
       case OrderStatus.pending: return AppColors.warning;
       case OrderStatus.accepted: return AppColors.info;
       case OrderStatus.inProgress: return AppColors.primary;
@@ -238,7 +247,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
       {'label': 'Accepted', 'icon': Icons.thumb_up_rounded, 'sub': 'Tailor accepted your order'},
       {'label': 'In Progress', 'icon': Icons.cut_rounded, 'sub': 'Tailor is stitching'},
       {'label': 'Quality Check', 'icon': Icons.verified_rounded, 'sub': 'Final quality inspection'},
-      {'label': 'Ready', 'icon': Icons.check_circle_rounded, 'sub': 'Ready for pickup/delivery'},
+      {'label': 'Ready', 'icon': Icons.check_circle_rounded, 'sub': 'Ready for delivery'},
       {'label': 'Delivered', 'icon': Icons.local_shipping_rounded, 'sub': 'Delivered to you'},
     ];
     final current = _currentStepIndex;
@@ -410,7 +419,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               children: [
                 Text('Delivery Scheduled!', style: GoogleFonts.poppins(color: AppColors.success, fontWeight: FontWeight.w600, fontSize: 13)),
                 Text(
-                  '${_selectedDate?.day}/${_selectedDate?.month} — $_selectedTimeSlot',
+                  '${_order.scheduledDelivery!.day}/${_order.scheduledDelivery!.month} — ${_order.deliverySlot ?? ''}',
                   style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 12),
                 ),
               ],
@@ -435,8 +444,8 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
                   context,
                   MaterialPageRoute(
                     builder: (_) => TailorChatScreen(
-                      contactName: widget.order.tailorName,
-                      orderId: widget.order.id,
+                      contactName: _order.tailorName,
+                      orderId: _order.id,
                     ),
                   ),
                 ),
@@ -534,7 +543,7 @@ class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
               children: [
                 Text('How was your order?', style: GoogleFonts.poppins(color: AppColors.textPrimary, fontWeight: FontWeight.w600, fontSize: 13)),
                 Text(
-                  'Rate ${widget.order.tailorName} to help other customers.',
+                  'Rate ${_order.tailorName} to help other customers.',
                   style: GoogleFonts.poppins(color: AppColors.textSecondary, fontSize: 11),
                 ),
               ],

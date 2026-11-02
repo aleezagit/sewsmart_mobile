@@ -4,6 +4,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/shared_widgets.dart';
 import '../../../core/models/app_models.dart';
 import '../../../core/services/auth_service.dart';
+import '../../../core/services/notification_service.dart';
 import '../../../core/utils/app_refresh.dart';
 import '../services/customer_service.dart';
 import 'browse_tailors_screen.dart';
@@ -13,7 +14,6 @@ import 'order_history_screen.dart';
 import 'notifications_screen.dart';
 import 'virtual_tryon_screen.dart';
 import 'customer_ai_recommendations_screen.dart';
-import 'ai_design_screen.dart';
 import 'live_streams_screen.dart';
 import 'live_viewer_screen.dart';
 import 'measure_screen.dart';
@@ -31,6 +31,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   List<LiveStream> _liveStreams = [];
   int _unreadNotifications = 0;
   bool _loadingTailors = true;
+  Object? _loadError;
 
   @override
   void initState() {
@@ -47,32 +48,33 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
   }
 
   Future<void> _loadData() async {
-    final user = AuthService().currentUser;
-    if (user == null) return;
-    final tailors = await CustomerService().getTailors();
-    final orders = await CustomerService().getMyOrders(user.id);
-    final notifications = await CustomerService().getNotifications(user.id);
-    final liveStreams = await CustomerService().getLiveStreams();
-    if (mounted) {
+    try {
+      final service = CustomerService();
+      final results = await Future.wait([
+        service.getTailors(),
+        service.getMyOrders(),
+        NotificationService().getNotifications(),
+        service.getLiveStreams(),
+      ]);
+      if (!mounted) return;
       setState(() {
-        _tailors = tailors;
-        _orders = orders;
-        _liveStreams = liveStreams;
-        _unreadNotifications = notifications.where((n) => !n.isRead).length;
+        _tailors = results[0] as List<TailorModel>;
+        _orders = results[1] as List<OrderModel>;
+        _unreadNotifications = (results[2] as List<NotificationModel>).where((n) => !n.isRead).length;
+        _liveStreams = results[3] as List<LiveStream>;
         _loadingTailors = false;
+        _loadError = null;
       });
+    } catch (e) {
+      if (mounted) setState(() { _loadingTailors = false; _loadError = e; });
     }
   }
 
-  OrderModel? get _activeOrder {
-    try {
-      return _orders.firstWhere((o) =>
-        o.status == OrderStatus.inProgress || o.status == OrderStatus.accepted || o.status == OrderStatus.qualityCheck
-      );
-    } catch (_) {
-      return null;
-    }
-  }
+  OrderModel? get _activeOrder => _orders
+      .where((o) =>
+          o.status == OrderStatus.inProgress || o.status == OrderStatus.accepted ||
+          o.status == OrderStatus.qualityCheck || o.status == OrderStatus.readyForDelivery)
+      .firstOrNull;
 
   String get _greeting {
     final hour = DateTime.now().hour;
@@ -139,7 +141,10 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
             ),
           ),
           GestureDetector(
-            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen())),
+            onTap: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
+              _loadData();
+            },
             child: Stack(
               children: [
                 Container(
@@ -221,15 +226,6 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
               context,
               MaterialPageRoute(
                   builder: (_) => const CustomerAiRecommendationsScreen()),
-            ),
-      },
-      {
-        'icon': Icons.auto_awesome_rounded,
-        'label': 'AI Design',
-        'gradient': [const Color(0xFFA855F7), AppColors.secondary],
-        'onTap': () => Navigator.push(
-              context,
-              MaterialPageRoute(builder: (_) => const AiDesignScreen()),
             ),
       },
       {
@@ -467,6 +463,8 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
           const SizedBox(height: 14),
           if (_loadingTailors)
             Center(child: Padding(padding: EdgeInsets.all(30), child: CircularProgressIndicator(color: AppColors.primaryLight, strokeWidth: 2)))
+          else if (_loadError != null)
+            LoadError(error: _loadError!, onRetry: _loadData)
           else
             ..._tailors.take(4).map((tailor) => _TailorListCard(tailor: tailor)),
         ],
