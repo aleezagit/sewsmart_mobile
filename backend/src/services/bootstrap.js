@@ -6,7 +6,8 @@ const Settings = require('../models/Settings');
 const Design = require('../models/Design');
 const { DESIGNS, ALIASES } = require('../data/designs');
 const { embed, modelId } = require('./embeddings');
-const { searchPhotos } = require('./stockPhotos');
+const DesignPicture = require('../models/DesignPicture');
+const { drawPicture } = require('./designPictures');
 
 // Makes sure a new database can be used: the platform settings exist and, when
 // ADMIN_EMAIL and ADMIN_PASSWORD are set, the first admin account exists. A
@@ -22,24 +23,31 @@ async function ensureAdmin() {
   return true;
 }
 
-// The design catalogue that AI recommendations and the wishlist draw from.
-// Designs without a photo get one from Pixabay, a different one each, when a key
-// is set; the others are retried at the next start. Safe to run at every start-up.
+// The design catalogue that AI recommendations and the wishlist draw from. Quick, so
+// the server can wait for it at start-up; ensureEmbeddings and ensurePictures need
+// outside services and run in the background. Safe to run at every start-up.
 async function ensureCatalogue() {
   for (const [i, [name, category, min, max]] of DESIGNS.entries()) {
     const tags = [...new Set(name.toLowerCase().match(/[a-z]+/g))];
     await Design.updateOne({ _id: `D${String(i + 1).padStart(3, '0')}` }, { name, category, price_min: min, price_max: max, tags }, { upsert: true });
   }
-  // An earlier version pointed at a picture service that no longer answers.
-  await Design.updateMany({ image_url: /pollinations/ }, { image_url: null });
-  await ensureEmbeddings();
-  if (!config.pixabayApiKey) return;
-  const used = new Set((await Design.find({ image_url: { $ne: null } })).map((d) => d.image_url));
+}
+
+const pictureLink = (design, data) => `${config.publicUrl}/api/designs/${design.id}/image?v=${crypto.createHash('sha1').update(data).digest('hex').slice(0, 8)}`;
+const picturePrompt = (design) => `${design.name}, ${design.category.toLowerCase()} wear, traditional Pakistani fashion, full-length outfit product photo on a plain studio background, high detail`;
+
+// Draws a picture for every design that has none, when REPLICATE_API_TOKEN is set. The
+// pictures are kept in the database; a design whose picture fails is tried again at the
+// next start. Links to photos from earlier versions (which did not match the designs)
+// are cleared, so a design shows its icon rather than a wrong picture.
+async function ensurePictures() {
+  await Design.updateMany({ image_url: { $ne: null, $not: /\/api\/designs\// } }, { image_url: null });
+  if (!config.replicateApiToken) return;
   for (const design of await Design.find({ image_url: null }).sort({ _id: 1 })) {
-    const photo = (await searchPhotos(`${design.name} ${design.category} dress`, 10)).find((url) => !used.has(url));
-    if (!photo) continue;
-    used.add(photo);
-    await Design.updateOne({ _id: design.id }, { image_url: photo });
+    const picture = await drawPicture(picturePrompt(design));
+    if (!picture) continue;
+    await DesignPicture.updateOne({ _id: design.id }, { content_type: picture.type, data: picture.data }, { upsert: true });
+    await Design.updateOne({ _id: design.id }, { image_url: pictureLink(design, picture.data) });
   }
 }
 
@@ -59,4 +67,9 @@ async function ensureEmbeddings() {
   }
 }
 
-module.exports = { ensureAdmin, ensureCatalogue, ensureEmbeddings };
+// What the catalogue gets from outside services. Failures are logged and retried at the next start.
+function enrichCatalogue() {
+  return ensureEmbeddings().then(ensurePictures).catch((error) => console.error(`Catalogue set-up failed: ${error.message}`));
+}
+
+module.exports = { ensureAdmin, ensureCatalogue, ensureEmbeddings, ensurePictures, enrichCatalogue };

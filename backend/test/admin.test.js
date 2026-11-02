@@ -141,40 +141,66 @@ test('a new database gets its first admin from the environment, once', async () 
   }
 });
 
-test('a new database gets the design catalogue, with a different Pixabay photo each when there is a key', async () => {
+test('a new database gets the design catalogue, and Replicate draws a picture for each design once', async () => {
   const config = require('../src/config');
-  const { ensureCatalogue } = require('../src/services/bootstrap');
+  const { ensureCatalogue, ensurePictures } = require('../src/services/bootstrap');
   const Design = require('../src/models/Design');
   const realFetch = global.fetch;
-  let calls = 0;
-  global.fetch = async () => {
-    calls += 1;
-    // The same two photos for every search, so each design has to take a new one.
-    const photos = Array.from({ length: 40 }, (_, i) => ({ webformatURL: `https://pixabay.com/get/photo-${i + 1}_640.jpg` }));
-    return { ok: true, status: 200, json: async () => ({ hits: photos }) };
+  const calls = [];
+  let status = 201;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method || 'GET', auth: options.headers?.Authorization, prefer: options.headers?.Prefer, body: options.body });
+    if (String(url).startsWith('https://api.replicate.com/')) {
+      const body = JSON.parse(options.body);
+      const id = calls.length;
+      return { ok: status === 201, status, text: async () => 'refused', json: async () => ({ status: 'succeeded', output: [`https://replicate.delivery/${id}/${encodeURIComponent(body.input.prompt.slice(0, 10))}.webp`] }) };
+    }
+    return { ok: true, status: 200, headers: new Headers({ 'content-type': 'image/webp' }), arrayBuffer: async () => new TextEncoder().encode(`picture ${calls.length}`).buffer };
   };
+  const total = require('../src/data/designs').DESIGNS.length;
+  const errors = console.error;
   try {
     await Design.deleteMany({});
     await ensureCatalogue();
-    const total = require('../src/data/designs').DESIGNS.length;
     assert.strictEqual(await Design.countDocuments(), total);
     assert.strictEqual(await Design.countDocuments({ image_url: null }), total);
-    assert.strictEqual(calls, 0);
 
-    // A picture address from the earlier picture service is cleared.
-    await Design.updateOne({ _id: 'D001' }, { image_url: 'https://image.pollinations.ai/prompt/x' });
-    config.pixabayApiKey = 'pixabay-key';
-    await ensureCatalogue();
-    const photos = (await Design.find().sort({ _id: 1 })).map((d) => d.image_url);
-    assert.strictEqual(new Set(photos).size, total);
-    assert.ok(photos.every((url) => url.startsWith('https://pixabay.com/get/photo-')));
+    // Without a token nothing is drawn, and a link to an old stock photo is cleared.
+    await Design.updateOne({ _id: 'D001' }, { image_url: 'https://stock.example.com/old.jpg' });
+    await ensurePictures();
+    assert.strictEqual(calls.length, 0);
+    assert.strictEqual((await Design.findById('D001')).image_url, null);
 
-    // Everything has a photo now, so starting again asks for nothing.
-    calls = 0;
-    await ensureCatalogue();
-    assert.strictEqual(calls, 0);
+    // A failing Replicate leaves the designs without pictures.
+    config.replicateApiToken = 'r8_token';
+    status = 500;
+    console.error = () => {};
+    await ensurePictures();
+    assert.strictEqual(await Design.countDocuments({ image_url: null }), total);
+    console.error = errors;
+
+    // With a token every design gets a picture, kept in the database and served openly.
+    status = 201;
+    calls.length = 0;
+    await ensurePictures();
+    const first = calls.find((c) => c.method === 'POST');
+    assert.strictEqual(first.url, 'https://api.replicate.com/v1/models/black-forest-labs/flux-schnell/predictions');
+    assert.deepStrictEqual([first.auth, first.prefer], ['Bearer r8_token', 'wait=60']);
+    assert.match(JSON.parse(first.body).input.prompt, /^Heavy Bridal Lehenga, bridal wear, traditional Pakistani fashion/);
+    const designs = await Design.find().sort({ _id: 1 });
+    assert.ok(designs.every((d) => new RegExp(`/api/designs/${d.id}/image\\?v=[0-9a-f]{8}$`).test(d.image_url)));
+    const served = await api.get(`/api/designs/D001/image`).expect(200);
+    assert.strictEqual(served.headers['content-type'], 'image/webp');
+    assert.match(served.body.toString(), /^picture \d+$/);
+    await api.get('/api/designs/D999/image').expect(404);
+
+    // Starting again draws nothing new.
+    calls.length = 0;
+    await ensurePictures();
+    assert.strictEqual(calls.length, 0);
   } finally {
+    console.error = errors;
     global.fetch = realFetch;
-    config.pixabayApiKey = undefined;
+    config.replicateApiToken = undefined;
   }
 });

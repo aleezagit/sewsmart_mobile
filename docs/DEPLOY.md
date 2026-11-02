@@ -42,18 +42,19 @@ embeddings. Without a key, recommendations match keywords instead.
 2. Set `GEMINI_API_KEY` on Render. The designs get their embeddings the next
    time the server starts.
 
-## 5. Design photos (Pixabay)
+## 5. Design pictures (Replicate)
 
-Designs in AI Recommendations show real photos found on Pixabay. Without a key the apps show icons instead.
+Each design in AI Recommendations gets a picture drawn by an image model
+(Flux Schnell) from its name and category. Without a token the apps show icons
+instead. Replicate charges per picture, about a third of a cent, so the 24
+designs cost a few cents once; the pictures are kept in the database.
 
-1. Create a free account at pixabay.com and open pixabay.com/api/docs.
-2. The key is shown on that page once you are signed in (100 requests a minute).
-3. Set `PIXABAY_API_KEY` on Render. The 24 catalogue designs get their photos
-   the next time the server starts.
-
-Pixabay asks apps to credit it (the screens say "Photos by Pixabay") and to
-copy photos to their own storage for long-term use. This project keeps their
-addresses, which is fine for a demo.
+1. Create an account at replicate.com and add credit under Billing ($5 is
+   plenty; it needs a card that allows international payments).
+2. Open replicate.com/account/api-tokens, create a token and copy it.
+3. Set `REPLICATE_API_TOKEN` on Render. The pictures are drawn in the
+   background after the next start, which takes a few minutes. Check the Logs
+   for "Replicate" lines if some designs stay without a picture.
 
 ## 6. The API (Render)
 
@@ -68,7 +69,7 @@ addresses, which is fine for a demo.
 | `ADMIN_EMAIL` and `ADMIN_PASSWORD` | the first admin's sign-in (8 or more characters) |
 | `BREVO_API_KEY`, `MAIL_FROM` | from Brevo (step 3) |
 | `GEMINI_API_KEY` | from Google AI Studio (step 4) |
-| `PIXABAY_API_KEY` | from Pixabay (step 5) |
+| `REPLICATE_API_TOKEN` | from Replicate (step 5) |
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | from LiveKit |
 
 4. Deploy. When it is live, open `https://YOUR-SERVICE.onrender.com/api/health`.

@@ -23,6 +23,8 @@ function createApp() {
   app.use('/api/auth', require('./routes/auth'));
   app.use('/api/admin', require('./routes/admin'));
 
+  app.use('/api/designs', require('./routes/designPictures'));
+
   // Everything below needs a signed-in customer or tailor.
   app.use('/api', requireUser);
   app.use('/api/users', require('./routes/users'));

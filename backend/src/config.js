@@ -37,8 +37,9 @@ module.exports = {
     apiKey: env.LIVEKIT_API_KEY,
     apiSecret: env.LIVEKIT_API_SECRET,
   },
-  // Pixabay API key (free) for the photos shown with designs. Without it the apps show icons.
-  pixabayApiKey: env.PIXABAY_API_KEY,
+  // Replicate API token for the AI-drawn pictures of the designs. Without it the apps show icons.
+  replicateApiToken: env.REPLICATE_API_TOKEN,
+  imageModel: env.IMAGE_MODEL || 'black-forest-labs/flux-schnell',
   // Google Gemini API key (free, aistudio.google.com/apikey) for the embeddings behind AI
   // recommendations. Without it, recommendations match keywords instead.
   geminiApiKey: env.GEMINI_API_KEY,

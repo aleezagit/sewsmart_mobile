@@ -32,7 +32,7 @@ services:
         sync: false
       - key: GEMINI_API_KEY
         sync: false
-      - key: PIXABAY_API_KEY
+      - key: REPLICATE_API_TOKEN
         sync: false
       - key: LIVEKIT_URL
         sync: false

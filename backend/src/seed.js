@@ -12,7 +12,7 @@ const { refreshTailorRating } = require('./services/ratings');
 const { addDays } = require('./utils/dates');
 const User = require('./models/User');
 const Admin = require('./models/Admin');
-const { ensureAdmin, ensureCatalogue } = require('./services/bootstrap');
+const { ensureAdmin, ensureCatalogue, enrichCatalogue } = require('./services/bootstrap');
 const Garment = require('./models/Garment');
 const PortfolioItem = require('./models/PortfolioItem');
 const Order = require('./models/Order');
@@ -62,6 +62,7 @@ async function seedPlatform() {
     throw new Error('Set ADMIN_EMAIL and ADMIN_PASSWORD in .env to create the first admin');
   }
   await ensureCatalogue();
+  await enrichCatalogue();
   await Coupon.updateOne({ _id: 'EID20' }, { discount_percent: 20, expires_at: addDays(now, 365) }, { upsert: true });
   await Coupon.updateOne({ _id: 'WELCOME10' }, { discount_percent: 10, max_uses: 500 }, { upsert: true });
 }

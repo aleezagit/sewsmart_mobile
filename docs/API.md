@@ -533,12 +533,12 @@ Closeness is measured on embeddings: Gemini turns each design's text (name, cate
     "category": "Bridal",
     "price_min": 4500,
     "price_max": 8000,
-    "image_url": "https://pixabay.com/get/photo-1_640.jpg"
+    "image_url": "https://sewsmart-api.onrender.com/api/designs/D001/image?v=3fa9c1d2"
   }
 ]
 ```
 
-`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts. With `PIXABAY_API_KEY` set, each gets a different photo found by searching Pixabay for its name, and a design that has none yet is retried at the next start. `image_url` is `null` without a key, and the screen then shows its category icon. The app loads the photo straight from that address and credits Pixabay on screen.
+`category` is Bridal, Formal, Eastern, Casual, Western or General. The designs are created when the server starts. With `REPLICATE_API_TOKEN` set, an image model on Replicate (Flux Schnell) draws a picture for each design from its name and category, in the background after start-up. The pictures are kept in the database and served openly at `GET /api/designs/:id/image`, whose `?v=` changes with the picture. A design whose picture could not be drawn is tried again at the next start. `image_url` is `null` without a token, and the screen then shows its category icon.
 
 ### 3.11 Virtual try-on
 
